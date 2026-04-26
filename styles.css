@@ -1,0 +1,38 @@
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #000;
+  color: #c8c8c8;
+  font-family: "Courier New", monospace;
+  overflow: hidden;
+  user-select: none;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+canvas#screen {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+  background: #000;
+  display: block;
+  box-shadow: 0 0 0 2px #222, 0 0 24px #000 inset;
+}
+
+#hint {
+  font-size: 12px;
+  color: #666;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
