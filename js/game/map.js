@@ -29,22 +29,27 @@ RR.Map = (function () {
     return cfg.pieces[0].name;
   }
 
-  function spawnDeco(map) {
+  function spawnDeco(map, road) {
     const name = pickPiece(map.cfg);
     const sprite = RR.Sprites.MAP[name];
     if (!sprite) return;
-    const r = C.ROAD;
     const W = C.INTERNAL_WIDTH;
+    // Use the widest the road ever gets so a deco placed now isn't covered
+    // by a later, wider segment scrolling onto it.
+    const center = W / 2;
+    const maxW = road ? RR.Road.maxWidth(road) : C.ROAD.width;
+    const leftEdge  = road ? center - maxW / 2 : C.ROAD.x;
+    const rightEdge = road ? center + maxW / 2 : C.ROAD.x + C.ROAD.width;
     const margin = 4;
     const left = Math.random() < 0.5;
     let x;
     if (left) {
       const min = margin;
-      const max = r.x - margin - sprite.width;
+      const max = leftEdge - margin - sprite.width;
       if (max <= min) return;
       x = min + Math.random() * (max - min);
     } else {
-      const min = r.x + r.width + margin;
+      const min = rightEdge + margin;
       const max = W - margin - sprite.width;
       if (max <= min) return;
       x = min + Math.random() * (max - min);
@@ -56,27 +61,26 @@ RR.Map = (function () {
     });
   }
 
-  function update(map, dt, car) {
+  function update(map, dt, car, road) {
     const speed = car.speed;
     for (const d of map.decos) d.y += speed * dt;
     map.decos = map.decos.filter(d => d.y < C.INTERNAL_HEIGHT + 40);
 
     map.spawnCooldown -= dt;
     if (map.spawnCooldown <= 0) {
-      spawnDeco(map);
+      spawnDeco(map, road);
       const [lo, hi] = map.cfg.spawnInterval;
       map.spawnCooldown = lo + Math.random() * (hi - lo);
     }
   }
 
-  function draw(ctx, map, worldOffset) {
-    const r = C.ROAD;
+  function draw(ctx, map, worldOffset, road) {
     const W = C.INTERNAL_WIDTH;
     const H = C.INTERNAL_HEIGHT;
 
+    // Fill full canvas with ground; the road draws asphalt over it per-row.
     ctx.fillStyle = map.cfg.groundColor;
-    ctx.fillRect(0, 0, r.x, H);
-    ctx.fillRect(r.x + r.width, 0, W - r.x - r.width, H);
+    ctx.fillRect(0, 0, W, H);
 
     // Scrolling accent dots — keep the eye on motion even on a still road.
     if (map.cfg.accentColor) {

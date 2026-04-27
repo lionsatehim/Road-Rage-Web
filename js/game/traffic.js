@@ -12,7 +12,11 @@ RR.Traffic = (function () {
     return { npcs: [], spawnCooldown: 0.4 };
   }
 
-  function laneCenters() {
+  // The variable-lane road is owned by RR.Road; when present we read live
+  // lane centers from it. Falls back to the static C.ROAD config when no
+  // road has been built (e.g. in early-boot dev contexts).
+  function laneCenters(road) {
+    if (road) return RR.Road.laneCenters(road);
     const r = C.ROAD;
     const laneW = r.width / r.lanes;
     const out = [];
@@ -20,7 +24,8 @@ RR.Traffic = (function () {
     return out;
   }
 
-  function nearestLane(x) {
+  function nearestLane(x, road) {
+    if (road) return RR.Road.nearestLane(road, x);
     const centers = laneCenters();
     let best = centers[0], bd = Infinity;
     for (const c of centers) {
@@ -74,7 +79,7 @@ RR.Traffic = (function () {
            Math.abs(player.y - refY) < gap;
   }
 
-  function trySpawn(traffic, player) {
+  function trySpawn(traffic, player, road) {
     const playerMax = C.CAR.maxSpeed;
     const archKey = rollArchetype();
     const archCfg = C.TRAFFIC.archetypes[archKey];
@@ -85,7 +90,7 @@ RR.Traffic = (function () {
     const fasterThanPlayer = speed > player.speed + 8;
     const spawnY = fasterThanPlayer ? C.INTERNAL_HEIGHT + 30 : -30;
 
-    const centers = laneCenters().slice();
+    const centers = laneCenters(road).slice();
     for (let i = centers.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [centers[i], centers[j]] = [centers[j], centers[i]];
@@ -117,7 +122,7 @@ RR.Traffic = (function () {
   }
 
   // ----- Per-archetype lateral & event behavior (no direct speed work) -----
-  function archetypeUpdate(npc, dt, player, npcs) {
+  function archetypeUpdate(npc, dt, player, npcs, road) {
     const approach = (rate) => 1 - Math.exp(-rate * dt);
 
     switch (npc.archetype) {
@@ -132,7 +137,7 @@ RR.Traffic = (function () {
         if (npc.timer > 0) {
           npc.timer -= dt;
         } else if (Math.abs(npc.y - player.y) < 90) {
-          const target = nearestLane(player.x);
+          const target = nearestLane(player.x, road);
           if (target !== npc.targetX &&
               laneClearAt(npcs, target, npc.y, 70) &&
               !playerInLane(player, target, npc.y, 50)) {
@@ -148,7 +153,7 @@ RR.Traffic = (function () {
         npc.timer -= dt;
         if (npc.timer <= 0) {
           // Adjacent lanes only — one lane at a time.
-          const centers = laneCenters();
+          const centers = laneCenters(road);
           let curIdx = 0, bestDx = Infinity;
           for (let i = 0; i < centers.length; i++) {
             const d = Math.abs(centers[i] - npc.targetX);
@@ -238,12 +243,24 @@ RR.Traffic = (function () {
     }
   }
 
-  function update(traffic, dt, player, npcScale) {
+  function update(traffic, dt, player, npcScale, road) {
     if (npcScale === undefined) npcScale = 1;
     const npcDt = dt * npcScale;
+
+    // Re-pin lane targets: if a lane closure leaves an NPC's targetX outside
+    // the active lanes, snap the target to the nearest valid center so the
+    // NPC merges instead of drifting to a vanished lane.
+    if (road) {
+      for (const npc of traffic.npcs) {
+        if (npc.crashed) continue;
+        const nearest = nearestLane(npc.targetX, road);
+        if (Math.abs(nearest - npc.targetX) > 1) npc.targetX = nearest;
+      }
+    }
+
     for (const npc of traffic.npcs) {
       if (!npc.crashed) {
-        archetypeUpdate(npc, npcDt, player, traffic.npcs);
+        archetypeUpdate(npc, npcDt, player, traffic.npcs, road);
         updateSpeed(npc, npcDt, traffic.npcs, player);
       }
       // Player drifts on real time; NPCs cover less ground when slowed.
@@ -258,7 +275,7 @@ RR.Traffic = (function () {
 
     traffic.spawnCooldown -= dt;
     if (traffic.spawnCooldown <= 0 && traffic.npcs.length < C.TRAFFIC.spawnTarget) {
-      const spawned = trySpawn(traffic, player);
+      const spawned = trySpawn(traffic, player, road);
       traffic.spawnCooldown = spawned ? (0.35 + Math.random() * 0.6) : 0.18;
     }
   }

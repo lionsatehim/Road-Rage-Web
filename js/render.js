@@ -183,25 +183,26 @@ RR.Render = (function () {
   // Translucent amber strip over the grass area that becomes drivable while
   // coffee is active. Tied to the smoothed shoulderSlack so it visibly recedes
   // as the lane re-clamps the car back into bounds after coffee ends.
-  function drawShoulderStrips(ctx, powerups) {
+  function drawShoulderStrips(ctx, powerups, road) {
     const slack = RR.Powerups.shoulderSlack(powerups);
     if (slack < 0.5) return;
     const cfgExtra = RR.Config.POWERUPS.types.coffee.shoulderExtra || 1;
     const intensity = Math.min(1, slack / cfgExtra);
-    const r = C.ROAD;
+    const left  = road ? road.leftEdge  : C.ROAD.x;
+    const right = road ? road.rightEdge : C.ROAD.x + C.ROAD.width;
     const H = C.INTERNAL_HEIGHT;
     const a = (0.18 * intensity).toFixed(3);
     ctx.fillStyle = 'rgba(230, 160, 60, ' + a + ')';
-    ctx.fillRect(r.x - slack, 0, slack, H);
-    ctx.fillRect(r.x + r.width, 0, slack, H);
+    ctx.fillRect(left - slack, 0, slack, H);
+    ctx.fillRect(right, 0, slack, H);
 
     // Dashed amber line at the live outer boundary — moves inward smoothly as
     // slack decays so the player sees the drivable zone retracting.
     ctx.fillStyle = 'rgba(255, 200, 90, ' + (0.55 * intensity).toFixed(3) + ')';
     const dashH = 6, gap = 4;
     for (let y = 0; y < H; y += dashH + gap) {
-      ctx.fillRect(Math.round(r.x - slack), y, 1, dashH);
-      ctx.fillRect(Math.round(r.x + r.width + slack - 1), y, 1, dashH);
+      ctx.fillRect(Math.round(left - slack), y, 1, dashH);
+      ctx.fillRect(Math.round(right + slack - 1), y, 1, dashH);
     }
   }
 

@@ -109,7 +109,10 @@
     state.shockTimer = 0;
     state.banner.timer = 0;
     state.paused = false;
-    state.map = RR.Map.create(RR.Career.currentMapType(state.career));
+    const mapType = RR.Career.currentMapType(state.career);
+    state.road = RR.Road.create(mapType, RR.Config.CAREERS.shiftDistance);
+    state.map = RR.Map.create(mapType);
+    state.hazards = RR.Hazards.create(mapType);
   }
 
   function tickDrive(dt) {
@@ -126,6 +129,9 @@
     }
     const input = RR.Input.read();
 
+    // Update road geometry first so car/traffic/powerups all see current bounds.
+    if (state.road) RR.Road.update(state.road, state.worldOffset);
+
     const inRR = RR.Rage.isRoadRage(state.rage);
     const puMods = RR.Powerups.carMods(state.powerups);
     const mods = mergeMods(
@@ -138,14 +144,17 @@
 
     const npcScale = RR.Powerups.npcTimeScale(state.powerups);
 
-    RR.Car.update(state.car, dt, input, mods);
-    RR.Traffic.update(state.traffic, dt, state.car, npcScale);
-    if (state.map) RR.Map.update(state.map, dt, state.car);
+    RR.Car.update(state.car, dt, input, mods, state.road);
+    RR.Traffic.update(state.traffic, dt, state.car, npcScale, state.road);
+    if (state.map) RR.Map.update(state.map, dt, state.car, state.road);
+    if (state.hazards) RR.Hazards.update(state.hazards, dt, state.car, state.road);
 
     const passThrough = RR.Powerups.isJumping(state.powerups) ||
                         RR.Powerups.isInvincible(state.powerups);
     const hit = passThrough ? null
       : RR.Traffic.checkCollisions(state.traffic, state.car, inRR);
+    const hazardHit = (passThrough || !state.hazards) ? null
+      : RR.Hazards.checkCollisions(state.hazards, state.car);
 
     // Coffee scales every rage gain (contact, brake, cut-ins, getting passed)
     // by 1.5x; drains are unaffected.
@@ -156,8 +165,16 @@
       RR.Career.addDamage(state.career, hit.kind);
       RR.Rage.onHit(state.rage, hit.kind, coffeeMult);
     }
+    if (hazardHit) {
+      RR.Career.addDamage(state.career, hazardHit.kind);
+      RR.Rage.onHit(state.rage, hazardHit.kind, coffeeMult);
+      state.car.speed *= hazardHit.cfg.speedKick;
+      state.shockTimer = Math.max(state.shockTimer, hazardHit.cfg.shock);
+      RR.Audio.sfx('tap');
+      triggerBanner(hazardHit.kind);
+    }
     RR.Rage.update(state.rage, dt, state.car, state.traffic, input, coffeeMult);
-    RR.Powerups.update(state.powerups, dt, state.car, state.rage);
+    RR.Powerups.update(state.powerups, dt, state.car, state.rage, state.road);
 
     // Power-up rage effects.
     if (state.powerups.justActivated === 'coffee') {
@@ -264,10 +281,11 @@
   // ---------- Tire marks (drive scene helper) ----------
   function updateTireMarks(dt) {
     const car = state.car;
-    const r = RR.Config.ROAD;
     const halfW = RR.Config.CAR.width / 2;
-    const normalLeft  = r.x + 2 + halfW;
-    const normalRight = r.x + r.width - 2 - halfW;
+    const left = state.road ? state.road.leftEdge : RR.Config.ROAD.x;
+    const right = state.road ? state.road.rightEdge : RR.Config.ROAD.x + RR.Config.ROAD.width;
+    const normalLeft  = left + 2 + halfW;
+    const normalRight = right - 2 - halfW;
     const offRoad = car.x < normalLeft - 0.5 || car.x > normalRight + 0.5;
 
     const rate = (car.speed - state.prevSpeed) / Math.max(dt, 1e-6);
@@ -338,10 +356,12 @@
       return;
     }
     // All other scenes show the road behind them.
-    if (state.map) RR.Map.draw(ctx, state.map, state.worldOffset);
-    RR.Render.drawRoad(ctx, state.worldOffset);
-    RR.Render.drawShoulderStrips(ctx, state.powerups);
+    if (state.map) RR.Map.draw(ctx, state.map, state.worldOffset, state.road);
+    if (state.road) RR.Road.draw(ctx, state.road, state.worldOffset);
+    else RR.Render.drawRoad(ctx, state.worldOffset);
+    RR.Render.drawShoulderStrips(ctx, state.powerups, state.road);
     RR.Render.drawTireMarks(ctx, state.tireMarks);
+    if (state.hazards) RR.Hazards.draw(ctx, state.hazards);
     RR.Powerups.draw(ctx, state.powerups);
     RR.Traffic.draw(ctx, state.traffic);
     RR.Render.drawCar(ctx, state.car, RR.Rage.isRoadRage(state.rage),

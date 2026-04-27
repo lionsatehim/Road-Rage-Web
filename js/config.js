@@ -47,6 +47,7 @@ RR.Config = {
     shortcutReducePct: 75,    // -75% bar when you trigger a shortcut
     coffeeImmediateDrop: 20,  // -20 rage the moment coffee activates
     coffeeGainMult: 1.5,      // multiplier on all rage gains while coffee is active
+    potholeBump: 12,          // +1.2 ticks when you clip a pothole
 
     // ---- Horn (kept from prior tuning) ----
     hornRelief: 8,
@@ -101,6 +102,7 @@ RR.Config = {
     damagePerCrash: 35,          // hard-crash damage units
     damagePerTap: 6,
     damagePerRam: 10,
+    damagePerPothole: 4,
     repairPerDamage: 4,          // $ per damage unit (multiplied by track.repairMult)
 
     // ---- Tracks ----
@@ -198,6 +200,10 @@ RR.Config = {
       color: '#c870e0',
       texts: ['Chill tunes', 'Lo-fi vibes', 'Mellow mode', "Slowin' it down"],
     },
+    pothole: {
+      color: '#ff9040',
+      texts: ['THWACK!', 'KLUNK!', 'WHOMP!', 'KA-THUNK!', 'BUMP!', 'KRUNCH!'],
+    },
   },
 
   // Audio overrides. Map any sfx, engine, or music name → file URL. If the
@@ -225,6 +231,7 @@ RR.Config = {
       accentColor: '#3d6a2a',
       accentPeriod: 32,
       spawnInterval: [0.7, 1.4],
+      lanes: { min: 2, max: 2, segment: [9999, 9999], transition: 60 },
       pieces: [
         { name: 'tree', weight: 6 },
         { name: 'bush', weight: 4 },
@@ -236,6 +243,7 @@ RR.Config = {
       accentColor: '#4d6d4d',
       accentPeriod: 28,
       spawnInterval: [0.45, 0.9],
+      lanes: { min: 2, max: 4, segment: [800, 1500], transition: 80 },
       pieces: [
         { name: 'house',   weight: 4 },
         { name: 'shrub',   weight: 4 },
@@ -248,6 +256,7 @@ RR.Config = {
       accentColor: '#66665a',
       accentPeriod: 24,
       spawnInterval: [0.35, 0.7],
+      lanes: { min: 3, max: 5, segment: [600, 1200], transition: 80 },
       pieces: [
         { name: 'apartment', weight: 4 },
         { name: 'sign',      weight: 2 },
@@ -260,6 +269,7 @@ RR.Config = {
       accentColor: '#4a4a52',
       accentPeriod: 20,
       spawnInterval: [0.25, 0.55],
+      lanes: { min: 4, max: 5, segment: [500, 1000], transition: 80 },
       pieces: [
         { name: 'tower',       weight: 5 },
         { name: 'streetlight', weight: 3 },
@@ -268,4 +278,27 @@ RR.Config = {
     },
   },
   PROMOTION: { /* layer 8 */ },
+
+  // ---- Hazards ----
+  // On-road obstacles. Pass C is a single shared hazard (pothole) wired
+  // into all maps; later passes can add per-map types (oil slicks,
+  // construction barrels, etc.) by extending HAZARDS and giving each map
+  // its own roster.
+  HAZARDS: {
+    spawnAheadY: -16,
+    pothole: {
+      width: 14, height: 8,
+      rageBump: 12,           // mirrors RAGE.potholeBump for visibility
+      speedKick: 0.55,        // car.speed *= this on hit
+      shock: 0.4,              // shockTimer floor (full-screen shake)
+      // Per-map mean spawn interval (seconds). City roads are bumpier than
+      // rural; tweak to taste once obstacles share screen with traffic.
+      interval: {
+        rural:  [3.5, 6.0],
+        suburb: [2.4, 4.0],
+        exurb:  [1.8, 3.2],
+        city:   [1.4, 2.6],
+      },
+    },
+  },
 };

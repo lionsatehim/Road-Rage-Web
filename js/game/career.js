@@ -139,6 +139,7 @@ RR.Career = (function () {
     if (kind === 'crash') s.damage += cc.damagePerCrash;
     else if (kind === 'tap') s.damage += cc.damagePerTap;
     else if (kind === 'ram') s.damage += cc.damagePerRam;
+    else if (kind === 'pothole') s.damage += cc.damagePerPothole;
   }
 
   function repairCost(s) {

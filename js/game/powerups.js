@@ -52,22 +52,27 @@ RR.Powerups = (function () {
 
   // Lane center, but allow roadside placement too. For now, drop pickups in
   // a random lane center so the player has to commit to a lane to grab one.
-  function pickSpawnX() {
+  // Reads live lane geometry from the road when present (variable lanes).
+  function pickSpawnX(road) {
+    if (road) {
+      const centers = RR.Road.laneCenters(road);
+      return centers[Math.floor(Math.random() * centers.length)];
+    }
     const r = C.ROAD;
     const laneW = r.width / r.lanes;
     const lane = Math.floor(Math.random() * r.lanes);
     return r.x + laneW * (lane + 0.5);
   }
 
-  function trySpawn(p) {
+  function trySpawn(p, road) {
     p.pickups.push({
       type: rollType(),
-      x: pickSpawnX(),
+      x: pickSpawnX(road),
       y: C.POWERUPS.spawnAheadY,
     });
   }
 
-  function update(p, dt, car, rage) {
+  function update(p, dt, car, rage, road) {
     p.justCollected = false;
     p.justActivated = null;
     p.justExpired = null;
@@ -132,7 +137,7 @@ RR.Powerups = (function () {
 
     p.spawnCooldown -= dt;
     if (p.spawnCooldown <= 0) {
-      trySpawn(p);
+      trySpawn(p, road);
       const [lo, hi] = C.POWERUPS.spawnInterval;
       p.spawnCooldown = lo + Math.random() * (hi - lo);
     }

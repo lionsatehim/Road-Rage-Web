@@ -17,11 +17,13 @@ RR.Car = (function () {
     };
   }
 
-  function clampToRoad(car, extra) {
+  function clampToRoad(car, extra, road) {
     const cfg = C.CAR;
     const slack = extra || 0;
-    const roadLeft  = C.ROAD.x + 2 - slack;
-    const roadRight = C.ROAD.x + C.ROAD.width - 2 + slack;
+    const baseLeft  = road ? road.leftEdge  : C.ROAD.x;
+    const baseRight = road ? road.rightEdge : C.ROAD.x + C.ROAD.width;
+    const roadLeft  = baseLeft  + 2 - slack;
+    const roadRight = baseRight - 2 + slack;
     const halfW = cfg.width / 2;
     if (car.x < roadLeft + halfW) {
       car.x = roadLeft + halfW;
@@ -33,7 +35,7 @@ RR.Car = (function () {
     }
   }
 
-  function update(car, dt, input, mods) {
+  function update(car, dt, input, mods, road) {
     const cfg = C.CAR;
     const speedMul = (mods && mods.speedBoost) || 1;
     const steerMul = (mods && mods.steerBoost) || 1;
@@ -68,7 +70,7 @@ RR.Car = (function () {
     car.lateralVel += (target - car.lateralVel) * k;
     car.x += car.lateralVel * dt;
 
-    clampToRoad(car, (mods && mods.shoulderExtra) || 0);
+    clampToRoad(car, (mods && mods.shoulderExtra) || 0, road);
   }
 
   return { create, update };

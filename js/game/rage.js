@@ -49,10 +49,14 @@ RR.Rage = (function () {
   // one that crosses the 100 threshold, flag justEnteredFromCrash so the UI
   // can call out that rage mode is now available.
   function onHit(rage, kind, mult) {
-    if (kind !== 'crash' && kind !== 'tap') return;
+    let amount = 0;
+    if (kind === 'crash' || kind === 'tap') amount = C.RAGE.crashBump;
+    else if (kind === 'pothole') amount = C.RAGE.potholeBump;
+    else return;
     const before = rage.level;
-    add(rage, C.RAGE.crashBump, mult);
-    if (before < 100 && rage.level >= 100 && !isRoadRage(rage)) {
+    add(rage, amount, mult);
+    // Potholes don't auto-trigger RR mode — too cheesable as a self-trigger.
+    if (kind !== 'pothole' && before < 100 && rage.level >= 100 && !isRoadRage(rage)) {
       rage.crashAboutToTriggerRR = true;
     }
   }
