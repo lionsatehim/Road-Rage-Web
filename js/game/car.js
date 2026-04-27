@@ -38,7 +38,8 @@ RR.Car = (function () {
     const speedMul = (mods && mods.speedBoost) || 1;
     const steerMul = (mods && mods.steerBoost) || 1;
     const accelMul = (mods && mods.accelBoost) || 1;
-    const maxSpeed       = cfg.maxSpeed * speedMul;
+    let   maxSpeed       = cfg.maxSpeed * speedMul;
+    if (mods && mods.maxSpeedAbs) maxSpeed = Math.min(maxSpeed, mods.maxSpeedAbs);
     const lateralMax     = cfg.lateralMaxSpeed * steerMul;
     const lateralAccel   = cfg.lateralAccel * steerMul;
 

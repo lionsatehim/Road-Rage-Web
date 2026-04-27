@@ -24,7 +24,9 @@
   const career = RR.Career.load();
 
   const state = {
-    scene: career.track ? 'drive' : 'select',
+    // Always boot to select; the screen offers Continue if a save exists,
+    // or 1/2/3 to start fresh (which wipes the save via pickTrack).
+    scene: 'select',
     paused: false,
     car: RR.Car.create(),
     worldOffset: 0,
@@ -41,7 +43,6 @@
     prevOffRoad: false,
   };
 
-  if (state.scene === 'drive') beginShift();
 
   const STEP = 1 / 60;
   const MAX_FRAME = 0.25;
@@ -76,6 +77,12 @@
 
   // ---------- Scene: SELECT ----------
   function tickSelect() {
+    // C continues an existing save without resetting streaks/earnings.
+    if (state.career.track && RR.Input.consumeEdge('KeyC')) {
+      state.scene = 'drive';
+      beginShift();
+      return;
+    }
     let pick = null;
     if (RR.Input.consumeEdge('Digit1')) pick = 'trades';
     if (RR.Input.consumeEdge('Digit2')) pick = 'finance';
@@ -106,7 +113,16 @@
 
   function tickDrive(dt) {
     if (RR.Input.consumePause()) state.paused = !state.paused;
-    if (state.paused) return;
+    if (state.paused) {
+      if (RR.Input.consumeEdge('KeyR')) {
+        RR.Career.clearSave();
+        state.career = RR.Career.load();
+        state.scene = 'select';
+        state.paused = false;
+        RR.Audio.stopLofi();
+      }
+      return;
+    }
     const input = RR.Input.read();
 
     const inRR = RR.Rage.isRoadRage(state.rage);
@@ -128,12 +144,39 @@
                         RR.Powerups.isInvincible(state.powerups);
     const hit = passThrough ? null
       : RR.Traffic.checkCollisions(state.traffic, state.car, inRR);
+
+    // Coffee scales every rage gain (contact, brake, cut-ins, getting passed)
+    // by 1.5x; drains are unaffected.
+    const coffeeMult = RR.Powerups.isCoffee(state.powerups)
+      ? RR.Config.RAGE.coffeeGainMult : 1;
+
     if (hit) {
       RR.Career.addDamage(state.career, hit.kind);
-      if (hit.kind === 'crash') RR.Rage.onHardCrash(state.rage);
+      RR.Rage.onHit(state.rage, hit.kind, coffeeMult);
     }
-    RR.Rage.update(state.rage, dt, state.car, state.traffic, input);
+    RR.Rage.update(state.rage, dt, state.car, state.traffic, input, coffeeMult);
     RR.Powerups.update(state.powerups, dt, state.car, state.rage);
+
+    // Power-up rage effects.
+    if (state.powerups.justActivated === 'coffee') {
+      RR.Rage.reduceFlat(state.rage, RR.Config.RAGE.coffeeImmediateDrop);
+    }
+    if (state.powerups.justActivated === 'shortcut') {
+      RR.Rage.reducePct(state.rage, RR.Config.RAGE.shortcutReducePct);
+    }
+    if (state.powerups.justExpired === 'jump') {
+      RR.Rage.reducePct(state.rage, RR.Config.RAGE.jumpLandReducePct);
+    }
+
+    // Rage entry banner — extra-loud when the trigger was a crash so the
+    // player knows they can floor it without stopping to recover.
+    if (state.rage.justEnteredRR) {
+      if (state.rage.justEnteredFromCrash) {
+        triggerCustomBanner('RAGE! GO!', '#ff6060');
+      } else {
+        triggerCustomBanner('RAGE MODE', '#ff6060');
+      }
+    }
 
     updateTireMarks(dt);
 
@@ -149,6 +192,17 @@
     const dDist = state.car.speed * dt;
     state.worldOffset += dDist;
     RR.Career.tickShift(state.career, dt, dDist);
+
+    // Passive career stress: distance-based drip so a quiet shift still ends
+    // somewhere on the rage meter. Tuned per track (finance > trades > teacher).
+    if (state.car.stunnedTimer <= 0 && !RR.Rage.isRoadRage(state.rage)) {
+      const tcfg = RR.Career.trackCfg(state.career);
+      const total = tcfg && tcfg.passiveStressTotal;
+      if (total) {
+        const rate = total / RR.Config.CAREERS.shiftDistance;
+        state.rage.level = Math.min(100, state.rage.level + rate * dDist);
+      }
+    }
 
     audioTick(hit, inRR);
 
@@ -255,14 +309,22 @@
     state.banner.timer = 1.23;
   }
 
+  function triggerCustomBanner(text, color) {
+    state.banner.text = text;
+    state.banner.color = color || '#fff';
+    state.banner.timer = 1.23;
+  }
+
   function mergeMods(a, b) {
     if (!a) return b;
     if (!b) return a;
+    const aCap = a.maxSpeedAbs, bCap = b.maxSpeedAbs;
     return {
       speedBoost: (a.speedBoost || 1) * (b.speedBoost || 1),
       steerBoost: (a.steerBoost || 1) * (b.steerBoost || 1),
       accelBoost: (a.accelBoost || 1) * (b.accelBoost || 1),
       shoulderExtra: a.shoulderExtra || b.shoulderExtra || 0,
+      maxSpeedAbs: (aCap && bCap) ? Math.min(aCap, bCap) : (aCap || bCap),
     };
   }
 
@@ -270,7 +332,7 @@
   function draw() {
     RR.Render.clear(ctx);
     if (state.scene === 'select') {
-      RR.Render.drawCareerSelect(ctx, state.time);
+      RR.Render.drawCareerSelect(ctx, state.time, state.career);
       return;
     }
     // All other scenes show the road behind them.

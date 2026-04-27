@@ -28,32 +28,36 @@ RR.Config = {
   },
 
   RAGE: {
-    // Increase rates / amounts
-    slowGain: 14,             // rage/sec at near-zero speed (scales linearly with slowFrac)
-    slowSpeedThreshold: 0.55, // rage gain only when speed/maxSpeed below this
-    brakeGain: 14,            // rage/sec while hard-braking from speed (>40px/s)
-    passedBy: 6,              // rage points when an NPC passes the player
-    nearMiss: 4,              // rage points per close approach without contact
-    hornMashGain: 7,          // honk during cooldown
-    crashBump: 22,            // rage spike on a hard crash
-    // Decrease rates / amounts
-    passBase: 3,              // base rage drained when player passes an NPC
-    passCloseBonus: 5,        // additional drain for close passes
-    smoothSpeedThreshold: 0.75, // (speed/maxSpeed) above this drains slowly
-    smoothDrain: 3.5,         // rage/sec
-    hornRelief: 8,            // honk on cooldown ready
+    // Rage meter is 0..100 with 10 segments; 1 "tick" = 10 rage.
+
+    // ---- Gains ----
+    brakeTap: 10,             // +1 tick the moment brake is pressed
+    brakeHeldRate: 20,        // +1 tick per 0.5s held = +2 ticks/sec while held
+    crashBump: 50,            // +50% bar on any contact (crash or tap)
+    npcMergeAhead: 10,        // +1 tick when an NPC merges into your lane ahead
+    passedBy: 10,             // +1 tick when a faster NPC overtakes you on either side
+    hornMashGain: 7,          // honk during cooldown (kept from prior tuning)
+
+    // ---- Drains ----
+    maxSpeedDrain: 10,        // -1 tick/sec while sitting at top speed
+    maxSpeedThreshold: 0.95,  // (speed/maxSpeed) ≥ this counts as "max speed"
+    sidePass: 10,             // -1 tick per close-side overtake of an NPC
+    sidePassDx: 32,           // |dx| at the moment of the pass to count as "on your side" (≈ adjacent lane)
+    jumpLandReducePct: 33,    // -33% bar when you land a jump
+    shortcutReducePct: 75,    // -75% bar when you trigger a shortcut
+    coffeeImmediateDrop: 20,  // -20 rage the moment coffee activates
+    coffeeGainMult: 1.5,      // multiplier on all rage gains while coffee is active
+
+    // ---- Horn (kept from prior tuning) ----
+    hornRelief: 8,
     hornCooldown: 1.4,
-    // Road Rage mode
+
+    // ---- Road Rage mode ----
     roadRageDuration: 10,
     roadRageExitLevel: 30,
     roadRageDrainRate: 12,
     roadRageSpeedBoost: 1.35,
     roadRageSteerBoost: 1.7,
-    // Near-miss zone
-    nearMissDx: 22,
-    nearMissDy: 30,
-    nearMissClearDx: 30,
-    nearMissClearDy: 42,
   },
 
   // ---- Stubs for upcoming layers (kept so layout is visible) ----
@@ -77,7 +81,7 @@ RR.Config = {
   },
   CAREERS: {
     // ---- Global shift parameters ----
-    retirementTarget: 100000,    // lifetime $ to retire (win condition)
+    retirementTarget: 8000,      // lifetime $ to retire (win condition)
     shiftDistance: 6000,         // worldOffset px to reach the workplace
     targetAvgSpeedFrac: 0.7,     // fraction of maxSpeed used to compute deadline
     deadlineCushion: 1.25,       // multiplier on top of the target time
@@ -108,6 +112,7 @@ RR.Config = {
         promoteStreak: 3,
         demoteStreak: 3,
         repairMult: 0.6,                 // signature: cheaper repairs
+        passiveStressTotal: 66,          // rage accrued over a full shift if you do nothing about it
         // Inverted ladder: apprentices get the gnarly downtown gigs,
         // contractors pick easy suburban jobs.
         levels: [
@@ -123,6 +128,7 @@ RR.Config = {
         demoteStreak: 3,
         repairMult: 1.0,
         stressTierShift: 1,              // signature: each tier counts one easier
+        passiveStressTotal: 100,         // rage accrued over a full shift if you do nothing about it
         levels: [
           { title: 'Bank Teller',     basePay: 70,  city: 'Suburbia',         trafficMult: 1.0 },
           { title: 'Bank Manager',    basePay: 130, city: 'Satellite Office', trafficMult: 1.1 },
@@ -139,6 +145,7 @@ RR.Config = {
         // tier is computed (so a near-rage teacher can still earn a bonus).
         cheerMinDropPct: 5,
         cheerMaxDropPct: 25,
+        passiveStressTotal: 33,          // rage accrued over a full shift if you do nothing about it
         // Cities are pulled at random on each (re)assignment instead of a
         // fixed ladder — teachers get whatever opening exists.
         cities: ['Riverside', 'Hilltop', 'Lakeside', 'Pine Grove', 'Oakwood', 'Greenfield'],
@@ -167,7 +174,7 @@ RR.Config = {
                   exitGrace: 0.5 },
       jump:     { weight: 3, duration: 0.7, hopHeight: 10, exitGrace: 0.4 },
       shortcut: { weight: 1, duration: 0,   advance: 320 },
-      lofi:     { weight: 2, duration: 8.0, drainRate: 14 },
+      lofi:     { weight: 2, duration: 8.0, drainRate: 14, maxSpeedMph: 65 },
     },
   },
 

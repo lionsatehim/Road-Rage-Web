@@ -305,23 +305,49 @@ RR.Render = (function () {
     const tcfg = RR.Career.trackCfg(car);
     ctx.fillStyle = '#9eea9e';
     ctx.fillText('$' + car.lifetimeEarnings, W - 4, H - 22);
-    ctx.fillStyle = '#aaa';
-    ctx.fillText('REPAIR $' + RR.Career.repairCost(car), W - 4, H - 12);
+    // Live damage readout: cost-to-repair grows during the shift; tinting
+    // tells the player at a glance how much next shift will sting.
+    const repair = RR.Career.repairCost(car);
+    ctx.fillStyle = repair > 200 ? '#ff6060'
+                   : repair > 80  ? '#ffaa40'
+                   : '#aaa';
+    ctx.fillText('DMG $' + repair, W - 4, H - 12);
 
-    // Promo dots: filled per current promoStreak, hollow for needed total.
-    const need = tcfg.promoteStreak || 3;
-    const dotY = H - 32, dotR = 3;
-    let dotX = W - 6;
-    for (let i = need - 1; i >= 0; i--) {
-      const filled = i < car.promoStreak;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = filled ? '#7fe07f' : '#222';
-      ctx.fill();
-      ctx.strokeStyle = '#7fe07f';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      dotX -= dotR * 2 + 2;
+    // Damage bar above the promo dots so a glance tells the player how
+    // beat-up the car is right now.
+    drawDamageBar(ctx, car, W - 64, H - 42, 60, 3);
+
+    // At the top rung, promotions no longer matter — replace the streak
+    // dots with a retirement progress bar so the player can see how close
+    // they are to the finish line.
+    const atTop = car.levelIdx === tcfg.levels.length - 1;
+    if (atTop) {
+      const target = cc.retirementTarget;
+      const frac = Math.min(1, car.lifetimeEarnings / target);
+      const barX = W - 64, barY = H - 32, barW = 60, barH = 4;
+      ctx.fillStyle = '#222';
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = '#ffe060';
+      ctx.fillRect(barX, barY, Math.round(barW * frac), barH);
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = '#ffe060';
+      ctx.textAlign = 'right';
+      ctx.fillText('RETIRE', barX - 2, barY - 2);
+    } else {
+      const need = tcfg.promoteStreak || 3;
+      const dotY = H - 32, dotR = 3;
+      let dotX = W - 6;
+      for (let i = need - 1; i >= 0; i--) {
+        const filled = i < car.promoStreak;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
+        ctx.fillStyle = filled ? '#7fe07f' : '#222';
+        ctx.fill();
+        ctx.strokeStyle = '#7fe07f';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        dotX -= dotR * 2 + 2;
+      }
     }
     ctx.textAlign = 'left';
   }
@@ -421,9 +447,23 @@ RR.Render = (function () {
     ctx.textBaseline = 'top';
   }
 
+  // Damage bar — segmented so each crash visibly fills another chunk. Soft
+  // cap at 200 damage units (about 6 hard crashes); past that it pegs full.
+  function drawDamageBar(ctx, career, x, y, w, h) {
+    const cap = 200;
+    const frac = Math.min(1, career.damage / cap);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(x, y, w, h);
+    let color = '#7fe07f';
+    if (frac > 0.66) color = '#ff6060';
+    else if (frac > 0.33) color = '#ffaa40';
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, Math.round(w * frac), h);
+  }
+
   // Career select screen. Shown only at game start (or after retiring / game
   // over). Three tracks, picked with 1/2/3.
-  function drawCareerSelect(ctx, t) {
+  function drawCareerSelect(ctx, t, career) {
     const W = C.INTERNAL_WIDTH, H = C.INTERNAL_HEIGHT;
     ctx.fillStyle = '#101820';
     ctx.fillRect(0, 0, W, H);
@@ -432,11 +472,40 @@ RR.Render = (function () {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffe060';
-    ctx.fillText('RUSH HOUR RAGE', W / 2, 22);
+    ctx.fillText('RUSH HOUR RAGE', W / 2, 18);
+
+    const hasSave = career && career.track;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+
+    // Continue strip — shown only when there's a saved career.
+    let listStartY = 36;
+    if (hasSave) {
+      const lvl = RR.Career.levelCfg(career);
+      const tcfg = RR.Career.trackCfg(career);
+      const y = 30;
+      ctx.fillStyle = '#1c2a36';
+      ctx.fillRect(20, y, W - 40, 22);
+      ctx.strokeStyle = '#7fe07f';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(20.5, y + 0.5, W - 41, 21);
+      ctx.font = 'bold 9px "Courier New", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#7fe07f';
+      ctx.fillText('C.', 28, y + 6);
+      ctx.fillStyle = '#fff';
+      ctx.fillText('Continue', 44, y + 6);
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = '#9aa';
+      ctx.fillText(tcfg.name + ' — ' + lvl.title + ' ($' + career.lifetimeEarnings + ')',
+                   44, y + 16);
+      listStartY = 60;
+    }
 
     ctx.font = '8px "Courier New", monospace';
+    ctx.textAlign = 'center';
     ctx.fillStyle = '#aaa';
-    ctx.fillText('PICK YOUR CAREER', W / 2, 38);
+    ctx.fillText(hasSave ? 'OR PICK A NEW CAREER' : 'PICK YOUR CAREER',
+                 W / 2, listStartY - 4);
 
     const tracks = [
       { key: '1', name: 'Skilled Trades', tag: 'Balanced',  color: '#9eea9e' },
@@ -444,12 +513,10 @@ RR.Render = (function () {
       { key: '3', name: 'Teacher',        tag: 'Low pay / Low stress', color: '#a0d8ff' },
     ];
 
-    const rowH = 38;
-    const startY = 60;
-    const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+    const rowH = 36;
     for (let i = 0; i < tracks.length; i++) {
       const tr = tracks[i];
-      const y = startY + i * rowH;
+      const y = listStartY + 6 + i * rowH;
       ctx.fillStyle = '#1c2a36';
       ctx.fillRect(20, y, W - 40, rowH - 6);
       ctx.strokeStyle = tr.color;
@@ -459,18 +526,19 @@ RR.Render = (function () {
       ctx.font = 'bold 10px "Courier New", monospace';
       ctx.textAlign = 'left';
       ctx.fillStyle = tr.color;
-      ctx.fillText(tr.key + '.', 28, y + 8);
+      ctx.fillText(tr.key + '.', 28, y + 7);
       ctx.fillStyle = '#fff';
-      ctx.fillText(tr.name, 44, y + 8);
+      ctx.fillText(tr.name, 44, y + 7);
       ctx.font = '8px "Courier New", monospace';
       ctx.fillStyle = '#9aa';
-      ctx.fillText(tr.tag, 44, y + 22);
+      ctx.fillText(tr.tag, 44, y + 20);
     }
 
     ctx.font = '8px "Courier New", monospace';
     ctx.textAlign = 'center';
     ctx.fillStyle = pulse > 0.5 ? '#fff' : '#888';
-    ctx.fillText('PRESS 1, 2, OR 3', W / 2, H - 14);
+    ctx.fillText(hasSave ? 'C TO CONTINUE  •  1/2/3 NEW GAME' : 'PRESS 1, 2, OR 3',
+                 W / 2, H - 10);
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -578,11 +646,27 @@ RR.Render = (function () {
 
   function drawStreakRow(ctx, career, r, x, y, w) {
     const tcfg = RR.Career.trackCfg(career);
+    const atTop = career.levelIdx === tcfg.levels.length - 1;
     ctx.font = '8px "Courier New", monospace';
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#aaa';
-    ctx.fillText('Promo', x + 8, y);
-    drawDots(ctx, x + 50, y + 4, career.promoStreak, tcfg.promoteStreak || 3, '#9eea9e');
+
+    if (atTop) {
+      const target = C.CAREERS.retirementTarget;
+      const frac = Math.min(1, career.lifetimeEarnings / target);
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('Retire', x + 8, y);
+      const barX = x + 50, barY = y + 1, barW = 80, barH = 4;
+      ctx.fillStyle = '#222';
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = '#ffe060';
+      ctx.fillRect(barX, barY, Math.round(barW * frac), barH);
+      ctx.fillStyle = '#ffe060';
+      ctx.fillText('$' + career.lifetimeEarnings + ' / $' + target, barX + barW + 4, y);
+    } else {
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('Promo', x + 8, y);
+      drawDots(ctx, x + 50, y + 4, career.promoStreak, tcfg.promoteStreak || 3, '#9eea9e');
+    }
 
     ctx.fillStyle = '#aaa';
     ctx.fillText('Late',  x + 8, y + 12);
@@ -674,9 +758,11 @@ RR.Render = (function () {
     ctx.fillStyle = '#fff';
     ctx.font = '16px "Courier New", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('PAUSED', C.INTERNAL_WIDTH / 2, C.INTERNAL_HEIGHT / 2 - 8);
+    ctx.fillText('PAUSED', C.INTERNAL_WIDTH / 2, C.INTERNAL_HEIGHT / 2 - 12);
     ctx.font = '8px "Courier New", monospace';
-    ctx.fillText('press P or Esc to resume', C.INTERNAL_WIDTH / 2, C.INTERNAL_HEIGHT / 2 + 12);
+    ctx.fillText('press P or Esc to resume', C.INTERNAL_WIDTH / 2, C.INTERNAL_HEIGHT / 2 + 8);
+    ctx.fillStyle = '#ff8060';
+    ctx.fillText('press R to reset career', C.INTERNAL_WIDTH / 2, C.INTERNAL_HEIGHT / 2 + 22);
     ctx.textAlign = 'left';
   }
 

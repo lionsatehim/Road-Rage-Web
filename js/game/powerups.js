@@ -165,6 +165,10 @@ RR.Powerups = (function () {
       out.accelBoost = p.active.cfg.accelBoost;
       any = true;
     }
+    if (p.active && p.active.type === 'lofi' && p.active.cfg.maxSpeedMph) {
+      out.maxSpeedAbs = p.active.cfg.maxSpeedMph / C.CAR.mphFactor;
+      any = true;
+    }
     if (p.shoulderSlack > 0.5) {
       out.shoulderExtra = p.shoulderSlack;
       any = true;
