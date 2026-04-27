@@ -12,24 +12,10 @@ RR.Render = (function () {
 
   function drawRoad(ctx, worldOffset) {
     const r = C.ROAD;
-    const W = C.INTERNAL_WIDTH;
     const H = C.INTERNAL_HEIGHT;
 
-    // Roadside (grass)
-    ctx.fillStyle = '#1d4a1d';
-    ctx.fillRect(0, 0, r.x, H);
-    ctx.fillRect(r.x + r.width, 0, W - r.x - r.width, H);
-
-    // Roadside detail — scrolling tufts so motion is readable on the edges
-    ctx.fillStyle = '#2a6a2a';
-    const period = 32;
-    const off = ((worldOffset * 0.6) % period + period) % period;
-    for (let y = -period + (off | 0); y < H; y += period) {
-      ctx.fillRect(8, y, 6, 6);
-      ctx.fillRect(22, y + 14, 4, 4);
-      ctx.fillRect(W - 14, y + 6, 6, 6);
-      ctx.fillRect(W - 28, y + 20, 4, 4);
-    }
+    // Off-road ground + accents are rendered by RR.Map (drawn first, before
+    // this function). drawRoad only owns the asphalt, edges, and stripes.
 
     // Road surface
     ctx.fillStyle = '#3c3c3c';

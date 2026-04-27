@@ -116,10 +116,10 @@ RR.Config = {
         // Inverted ladder: apprentices get the gnarly downtown gigs,
         // contractors pick easy suburban jobs.
         levels: [
-          { title: 'Apprentice', basePay: 80,  city: 'Downtown',   trafficMult: 1.4 },
-          { title: 'Technician', basePay: 110, city: 'Industrial', trafficMult: 1.2 },
-          { title: 'Foreman',    basePay: 150, city: 'Suburban',   trafficMult: 1.0 },
-          { title: 'Contractor', basePay: 220, city: 'Rural',      trafficMult: 0.7 },
+          { title: 'Apprentice', basePay: 80,  city: 'Downtown',   trafficMult: 1.4, mapType: 'city' },
+          { title: 'Technician', basePay: 110, city: 'Industrial', trafficMult: 1.2, mapType: 'exurb' },
+          { title: 'Foreman',    basePay: 150, city: 'Suburban',   trafficMult: 1.0, mapType: 'suburb' },
+          { title: 'Contractor', basePay: 220, city: 'Rural',      trafficMult: 0.7, mapType: 'rural' },
         ],
       },
       finance: {
@@ -130,10 +130,10 @@ RR.Config = {
         stressTierShift: 1,              // signature: each tier counts one easier
         passiveStressTotal: 100,         // rage accrued over a full shift if you do nothing about it
         levels: [
-          { title: 'Bank Teller',     basePay: 70,  city: 'Suburbia',         trafficMult: 1.0 },
-          { title: 'Bank Manager',    basePay: 130, city: 'Satellite Office', trafficMult: 1.1 },
-          { title: 'Bank Executive',  basePay: 240, city: 'Downtown',         trafficMult: 1.3 },
-          { title: 'CEO',             basePay: 420, city: 'Top Floor',        trafficMult: 1.5 },
+          { title: 'Bank Teller',     basePay: 70,  city: 'Suburbia',         trafficMult: 1.0, mapType: 'suburb' },
+          { title: 'Bank Manager',    basePay: 130, city: 'Satellite Office', trafficMult: 1.1, mapType: 'exurb' },
+          { title: 'Bank Executive',  basePay: 240, city: 'Downtown',         trafficMult: 1.3, mapType: 'city' },
+          { title: 'CEO',             basePay: 420, city: 'Top Floor',        trafficMult: 1.5, mapType: 'city' },
         ],
       },
       teacher: {
@@ -150,10 +150,10 @@ RR.Config = {
         // fixed ladder — teachers get whatever opening exists.
         cities: ['Riverside', 'Hilltop', 'Lakeside', 'Pine Grove', 'Oakwood', 'Greenfield'],
         levels: [
-          { title: 'Substitute',      basePay: 50,  trafficMult: 1.0 },
-          { title: 'New Teacher',     basePay: 75,  trafficMult: 1.0 },
-          { title: 'Tenured Teacher', basePay: 105, trafficMult: 1.0 },
-          { title: 'Principal',       basePay: 150, trafficMult: 1.0 },
+          { title: 'Substitute',      basePay: 50,  trafficMult: 1.0, mapType: 'suburb' },
+          { title: 'New Teacher',     basePay: 75,  trafficMult: 1.0, mapType: 'suburb' },
+          { title: 'Tenured Teacher', basePay: 105, trafficMult: 1.0, mapType: 'exurb' },
+          { title: 'Principal',       basePay: 150, trafficMult: 1.0, mapType: 'exurb' },
         ],
       },
     },
@@ -214,6 +214,58 @@ RR.Config = {
       // thunder: 'audio/thunder.wav',
     },
   },
-  CITIES:    { /* layer 7 */ },
+  // ---- Map types ----
+  // Backgrounds tied to a career level via `mapType`. Each entry defines the
+  // off-road palette and the set-piece roster (sprite name -> weight) the map
+  // module draws while scrolling. spawnInterval is seconds-between-pieces;
+  // shorter = denser scenery.
+  MAPS: {
+    rural: {
+      groundColor: '#2c4a1d',
+      accentColor: '#3d6a2a',
+      accentPeriod: 32,
+      spawnInterval: [0.7, 1.4],
+      pieces: [
+        { name: 'tree', weight: 6 },
+        { name: 'bush', weight: 4 },
+        { name: 'hay',  weight: 1 },
+      ],
+    },
+    suburb: {
+      groundColor: '#3a5a3a',
+      accentColor: '#4d6d4d',
+      accentPeriod: 28,
+      spawnInterval: [0.45, 0.9],
+      pieces: [
+        { name: 'house',   weight: 4 },
+        { name: 'shrub',   weight: 4 },
+        { name: 'mailbox', weight: 2 },
+        { name: 'tree',    weight: 1 },
+      ],
+    },
+    exurb: {
+      groundColor: '#56564a',
+      accentColor: '#66665a',
+      accentPeriod: 24,
+      spawnInterval: [0.35, 0.7],
+      pieces: [
+        { name: 'apartment', weight: 4 },
+        { name: 'sign',      weight: 2 },
+        { name: 'shrub',     weight: 2 },
+        { name: 'house',     weight: 1 },
+      ],
+    },
+    city: {
+      groundColor: '#3a3a40',
+      accentColor: '#4a4a52',
+      accentPeriod: 20,
+      spawnInterval: [0.25, 0.55],
+      pieces: [
+        { name: 'tower',       weight: 5 },
+        { name: 'streetlight', weight: 3 },
+        { name: 'billboard',   weight: 2 },
+      ],
+    },
+  },
   PROMOTION: { /* layer 8 */ },
 };

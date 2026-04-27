@@ -277,6 +277,14 @@ RR.Career = (function () {
     return result;
   }
 
+  // Map type for the current level. Defaults to suburb when nothing is set
+  // (e.g., before a track has been picked).
+  function currentMapType(s) {
+    if (!s || !s.track) return 'suburb';
+    const lvl = levelCfg(s);
+    return (lvl && lvl.mapType) || 'suburb';
+  }
+
   // Promotion progress as a fraction (0..1) for the HUD.
   function promoProgress(s) {
     if (!s.track) return 0;
@@ -288,7 +296,7 @@ RR.Career = (function () {
     pickTrack, assignCity,
     startShift, tickShift, finishShift,
     addDamage, repairCost,
-    trackCfg, levelCfg,
+    trackCfg, levelCfg, currentMapType,
     stressTier, promoProgress,
     shiftDeadline,
   };

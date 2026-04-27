@@ -109,6 +109,7 @@
     state.shockTimer = 0;
     state.banner.timer = 0;
     state.paused = false;
+    state.map = RR.Map.create(RR.Career.currentMapType(state.career));
   }
 
   function tickDrive(dt) {
@@ -139,6 +140,7 @@
 
     RR.Car.update(state.car, dt, input, mods);
     RR.Traffic.update(state.traffic, dt, state.car, npcScale);
+    if (state.map) RR.Map.update(state.map, dt, state.car);
 
     const passThrough = RR.Powerups.isJumping(state.powerups) ||
                         RR.Powerups.isInvincible(state.powerups);
@@ -336,6 +338,7 @@
       return;
     }
     // All other scenes show the road behind them.
+    if (state.map) RR.Map.draw(ctx, state.map, state.worldOffset);
     RR.Render.drawRoad(ctx, state.worldOffset);
     RR.Render.drawShoulderStrips(ctx, state.powerups);
     RR.Render.drawTireMarks(ctx, state.tireMarks);

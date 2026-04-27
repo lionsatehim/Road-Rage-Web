@@ -239,5 +239,170 @@ RR.Sprites = (function () {
     lofi:     PU_LOFI,
   };
 
-  return { makeSprite, draw, PLAYER, PLAYER_RAGING, NPC_VARIANTS, PICKUPS };
+  // -------- Map decorations --------
+  // Small set-piece sprites painted alongside the road. Kept intentionally
+  // simple for the first pass — they read at the internal resolution and
+  // can be expanded later without touching map placement logic.
+
+  // Rural —
+  const M_TREE = makeSprite([
+    '..GGGG..',
+    '.GGgGGG.',
+    'GGGGGGGG',
+    'GgGGGGgG',
+    'GGGgGGGG',
+    '.GGGgGG.',
+    '..GGGG..',
+    '...BB...',
+    '...BB...',
+  ], { 'G': [29, 74, 29], 'g': [50, 110, 50], 'B': [80, 50, 30], '.': null });
+
+  const M_BUSH = makeSprite([
+    '.bbbb.',
+    'bbBBbb',
+    'bBBBBb',
+    'bbBBbb',
+    '.bbbb.',
+  ], { 'b': [40, 110, 50], 'B': [70, 150, 80], '.': null });
+
+  const M_HAY = makeSprite([
+    '..yyyyy..',
+    '.yyYYYyy.',
+    'yyYYYYYyy',
+    'yyYYYYYyy',
+    '.yyYYYyy.',
+    '..yyyyy..',
+  ], { 'y': [180, 140, 50], 'Y': [220, 180, 80], '.': null });
+
+  // Suburb —
+  const M_HOUSE = makeSprite([
+    '...RRRRRR...',
+    '..RRRRRRRR..',
+    '.RRRRRRRRRR.',
+    'RRRRRRRRRRRR',
+    'WWWWWWWWWWWW',
+    'WWWWWDDWWWWW',
+    'WW.WWDDWW.WW',
+    'WW.WWDDWW.WW',
+    'WWWWWDDWWWWW',
+    'WWWWWWWWWWWW',
+  ], {
+    'R': [140, 45, 40], 'W': [200, 175, 135],
+    'D': [60, 40, 20], '.': null,
+  });
+
+  const M_SHRUB = makeSprite([
+    '.sSs.',
+    'sSSSs',
+    'SSSSS',
+    'sSSSs',
+    '.sSs.',
+  ], { 's': [50, 120, 70], 'S': [80, 160, 100], '.': null });
+
+  const M_MAILBOX = makeSprite([
+    '.MMM.',
+    '.MMM.',
+    'MMMMM',
+    '..P..',
+    '..P..',
+    '..P..',
+    '..P..',
+    '..P..',
+  ], { 'M': [180, 60, 60], 'P': [80, 60, 40], '.': null });
+
+  // Exurb —
+  const M_APARTMENT = makeSprite([
+    'GGGGGGGGGGGG',
+    'GwwGwwGwwGwG',
+    'GwwGwwGwwGwG',
+    'GGGGGGGGGGGG',
+    'GwwGwwGwwGwG',
+    'GwwGwwGwwGwG',
+    'GGGGGGGGGGGG',
+    'GwwGwwGwwGwG',
+    'GwwGwwGwwGwG',
+    'GGGGGGGGGGGG',
+    'GGGGGGGGGGGG',
+    'GG........GG',
+  ], { 'G': [85, 85, 95], 'w': [240, 210, 100], '.': null });
+
+  const M_SIGN = makeSprite([
+    'YYYYYYY',
+    'YyyyyyY',
+    'YyRRRyY',
+    'YyyyyyY',
+    'YYYYYYY',
+    '...P...',
+    '...P...',
+    '...P...',
+    '...P...',
+  ], {
+    'Y': [220, 200, 70], 'y': [240, 220, 110],
+    'R': [180, 50, 50], 'P': [70, 60, 40], '.': null,
+  });
+
+  // City —
+  const M_TOWER = makeSprite([
+    'TTTTTTTTTTTT',
+    'TTTTTTTTTTTT',
+    'TwwTwwTwwTwT',
+    'TwwTwwTwwTwT',
+    'TTTTTTTTTTTT',
+    'TwwTwwTwwTwT',
+    'TwwTwwTwwTwT',
+    'TTTTTTTTTTTT',
+    'TwwTwwTwwTwT',
+    'TwwTwwTwwTwT',
+    'TTTTTTTTTTTT',
+    'TwwTwwTwwTwT',
+    'TwwTwwTwwTwT',
+    'TTTTTTTTTTTT',
+    'TwwTwwTwwTwT',
+    'TwwTwwTwwTwT',
+    'TTTTTTTTTTTT',
+    'TwwTwwTwwTwT',
+    'TwwTwwTwwTwT',
+    'TTTTTTTTTTTT',
+  ], { 'T': [40, 50, 70], 'w': [240, 210, 90], '.': null });
+
+  const M_STREETLIGHT = makeSprite([
+    '.YY.',
+    'YYYY',
+    'YYYY',
+    '.PP.',
+    '.PP.',
+    '.PP.',
+    '.PP.',
+    '.PP.',
+    '.PP.',
+    '.PP.',
+    '.PP.',
+    '.PP.',
+  ], { 'Y': [240, 210, 90], 'P': [80, 80, 85], '.': null });
+
+  const M_BILLBOARD = makeSprite([
+    'BBBBBBBBBBBB',
+    'BccccccccccB',
+    'BccCCccCCccB',
+    'BccccccccccB',
+    'BcccccCCcccB',
+    'BccccccccccB',
+    'BBBBBBBBBBBB',
+    '....PP......',
+    '....PP......',
+    '....PP......',
+    '....PP......',
+  ], {
+    'B': [50, 50, 60], 'c': [200, 80, 90],
+    'C': [240, 230, 200], 'P': [80, 80, 85], '.': null,
+  });
+
+  const MAP = {
+    tree: M_TREE, bush: M_BUSH, hay: M_HAY,
+    house: M_HOUSE, shrub: M_SHRUB, mailbox: M_MAILBOX,
+    apartment: M_APARTMENT, sign: M_SIGN,
+    tower: M_TOWER, streetlight: M_STREETLIGHT, billboard: M_BILLBOARD,
+  };
+
+  return { makeSprite, draw, PLAYER, PLAYER_RAGING, NPC_VARIANTS, PICKUPS, MAP };
 })();
