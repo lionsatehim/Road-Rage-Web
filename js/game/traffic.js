@@ -113,6 +113,12 @@ RR.Traffic = (function () {
         // weavers/tailgaters don't all change lanes at the same brisk pace.
         laneChangeRate: 1.8 + Math.random() * 1.2,
         sprite: sprite,
+        braking: false,
+        // Blinker state: 0 = off, -1 = left, +1 = right. Driven by lane-change
+        // intent, with an occasional random "they forgot to turn it off" tick.
+        blinkerSide: 0,
+        blinkerRandomTimer: 4 + Math.random() * 12,
+        blinkerRandomActive: 0,
       };
       RR.Rage.tagSpawn(npc, player);
       traffic.npcs.push(npc);
@@ -209,9 +215,11 @@ RR.Traffic = (function () {
   // for their current relative speed and start decelerating before they could
   // possibly run into the lead car (NPC or player).
   function updateSpeed(npc, dt, npcs, player) {
+    npc.braking = false;
     if (npc.brakeTimer > 0) {
       npc.brakeTimer -= dt;
       npc.speed = npc.baseSpeed * 0.25;
+      npc.braking = true;
       return;
     }
 
@@ -222,7 +230,9 @@ RR.Traffic = (function () {
 
       if (lead.dy < minGap) {
         // Inside the buffer: clamp at or just under the lead's speed.
-        npc.speed = Math.max(0, Math.min(npc.speed, lead.speed - 4));
+        const newSpeed = Math.max(0, Math.min(npc.speed, lead.speed - 4));
+        if (newSpeed < npc.speed - 0.1) npc.braking = true;
+        npc.speed = newSpeed;
         return;
       }
 
@@ -232,6 +242,7 @@ RR.Traffic = (function () {
         const brakeAt = minGap + stoppingDist + 10;   // small safety margin
         if (lead.dy < brakeAt) {
           npc.speed = Math.max(lead.speed, npc.speed - decel * dt);
+          npc.braking = true;
           return;
         }
       }
@@ -243,18 +254,60 @@ RR.Traffic = (function () {
     }
   }
 
+  // Blinker side from lane-change intent (mid-merge) plus an occasional
+  // "left it on" random burst — feels more human than perfect signaling.
+  function updateBlinker(npc, dt) {
+    const dx = npc.targetX - npc.x;
+    const merging = Math.abs(dx) > 1.5;
+    if (merging) {
+      npc.blinkerSide = dx < 0 ? -1 : 1;
+      npc.blinkerRandomActive = 0;
+      return;
+    }
+    if (npc.blinkerRandomActive > 0) {
+      npc.blinkerRandomActive -= dt;
+      if (npc.blinkerRandomActive <= 0) {
+        npc.blinkerSide = 0;
+        npc.blinkerRandomTimer = 6 + Math.random() * 14;
+      }
+      return;
+    }
+    npc.blinkerSide = 0;
+    npc.blinkerRandomTimer -= dt;
+    if (npc.blinkerRandomTimer <= 0) {
+      npc.blinkerRandomActive = 1.5 + Math.random() * 2.5;
+      npc.blinkerSide = Math.random() < 0.5 ? -1 : 1;
+    }
+  }
+
   function update(traffic, dt, player, npcScale, road) {
     if (npcScale === undefined) npcScale = 1;
     const npcDt = dt * npcScale;
 
-    // Re-pin lane targets: if a lane closure leaves an NPC's targetX outside
-    // the active lanes, snap the target to the nearest valid center so the
-    // NPC merges instead of drifting to a vanished lane.
+    // Re-pin every NPC against the road geometry at its OWN worldY, not the
+    // player's. During lane transitions the road's lane centers and edges
+    // differ along the screen — using the NPC's worldY keeps it riding the
+    // current asphalt instead of briefly drifting onto the shoulder.
     if (road) {
+      const halfW = C.CAR.width / 2;
       for (const npc of traffic.npcs) {
         if (npc.crashed) continue;
-        const nearest = nearestLane(npc.targetX, road);
-        if (Math.abs(nearest - npc.targetX) > 1) npc.targetX = nearest;
+        const npcWy = road.worldOffset + (C.CAR.screenY - npc.y);
+        const centers = RR.Road.laneCentersAt(road, npcWy);
+        // Snap targetX to the closest valid lane center at this row.
+        let bestIdx = 0, bestD = Infinity;
+        for (let i = 0; i < centers.length; i++) {
+          const d = Math.abs(centers[i] - npc.targetX);
+          if (d < bestD) { bestD = d; bestIdx = i; }
+        }
+        npc.targetX = centers[bestIdx];
+        // Clamp the NPC's x to the visible road at its worldY, so a
+        // shrinking edge can't leave the NPC sitting on the grass.
+        const edges = RR.Road.edgesAt(road, npcWy);
+        const minX = edges.left  + halfW + 2;
+        const maxX = edges.right - halfW - 2;
+        if (npc.x < minX) npc.x = minX;
+        if (npc.x > maxX) npc.x = maxX;
       }
     }
 
@@ -262,6 +315,7 @@ RR.Traffic = (function () {
       if (!npc.crashed) {
         archetypeUpdate(npc, npcDt, player, traffic.npcs, road);
         updateSpeed(npc, npcDt, traffic.npcs, player);
+        updateBlinker(npc, dt);
       }
       // Player drifts on real time; NPCs cover less ground when slowed.
       npc.y += (player.speed - npc.speed * npcScale) * dt;
@@ -336,10 +390,19 @@ RR.Traffic = (function () {
   }
 
   function draw(ctx, traffic) {
+    // Blinkers blink at ~3 Hz off a shared clock so all signaling NPCs
+    // are visually in sync — easier to read than per-car phase offsets.
+    const blinkOn = (Math.floor(performance.now() / 220) % 2) === 0;
     for (const npc of traffic.npcs) {
       const x = Math.round(npc.x - C.CAR.width  / 2);
       const y = Math.round(npc.y - C.CAR.height / 2);
       ctx.drawImage(npc.sprite, x, y);
+      if (!npc.crashed) {
+        RR.Render.drawBrakeLights(ctx, x, y, npc.braking);
+        if (npc.blinkerSide && blinkOn) {
+          RR.Render.drawBlinker(ctx, x, y, npc.blinkerSide);
+        }
+      }
     }
   }
 

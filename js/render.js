@@ -57,9 +57,31 @@ RR.Render = (function () {
       const sy = Math.round(car.y - C.CAR.height / 2 + C.CAR.height - 2);
       ctx.fillRect(sx, sy, C.CAR.width - 4, 3);
     }
-    const sprite = raging ? RR.Sprites.PLAYER_RAGING : RR.Sprites.PLAYER;
+    // RR mode: alternate between red and yellow tints (~12 Hz) for a
+    // Mario-star "invincible" feel. Outside RR: plain player sprite.
+    let sprite = RR.Sprites.PLAYER;
+    if (raging) {
+      const tick = Math.floor(performance.now() / 80) % 2;
+      sprite = tick === 0 ? RR.Sprites.PLAYER_RAGING : RR.Sprites.PLAYER_RAGING_YELLOW;
+    }
     RR.Sprites.draw(ctx, sprite, x, y);
+    drawBrakeLights(ctx, x, y, car.braking);
     ctx.globalAlpha = 1;
+  }
+
+  // Two small rectangles on the rear bumper of any 16x24 car sprite. Dim
+  // by default, bright red while braking — same positions for player + NPCs.
+  function drawBrakeLights(ctx, x, y, on) {
+    ctx.fillStyle = on ? '#ff3030' : '#601010';
+    ctx.fillRect(x + 5, y + 21, 2, 2);
+    ctx.fillRect(x + 9, y + 21, 2, 2);
+  }
+
+  // Yellow blinker pixel at one rear corner — used by NPC draw. side: -1 left, +1 right.
+  function drawBlinker(ctx, x, y, side) {
+    ctx.fillStyle = '#ffd040';
+    if (side < 0) ctx.fillRect(x + 3, y + 20, 2, 2);
+    else          ctx.fillRect(x + 11, y + 20, 2, 2);
   }
 
   function drawRageMeter(ctx, rage, t) {
@@ -754,7 +776,7 @@ RR.Render = (function () {
   }
 
   return {
-    clear, drawRoad, drawCar, drawHUD, drawPause, drawBanner,
+    clear, drawRoad, drawCar, drawBrakeLights, drawBlinker, drawHUD, drawPause, drawBanner,
     drawRoadRageVignette, drawShortcutFlash, drawCoffeeVignette,
     drawShoulderStrips, drawTireMarks,
     drawCareerSelect, drawShiftEnd, drawGameOver, drawRetired,

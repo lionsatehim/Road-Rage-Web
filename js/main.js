@@ -113,6 +113,9 @@
     state.road = RR.Road.create(mapType, RR.Config.CAREERS.shiftDistance);
     state.map = RR.Map.create(mapType);
     state.hazards = RR.Hazards.create(mapType);
+    // Start the player in the slow (rightmost) lane every shift.
+    const centers = RR.Road.laneCenters(state.road);
+    state.car.x = centers[centers.length - 1];
   }
 
   function tickDrive(dt) {
@@ -161,17 +164,28 @@
     const coffeeMult = RR.Powerups.isCoffee(state.powerups)
       ? RR.Config.RAGE.coffeeGainMult : 1;
 
+    const dmgMult = inRR ? RR.Config.RAGE.roadRageDamageMult : 1;
+
     if (hit) {
-      RR.Career.addDamage(state.career, hit.kind);
+      RR.Career.addDamage(state.career, hit.kind, dmgMult);
       RR.Rage.onHit(state.rage, hit.kind, coffeeMult);
     }
     if (hazardHit) {
-      RR.Career.addDamage(state.career, hazardHit.kind);
-      RR.Rage.onHit(state.rage, hazardHit.kind, coffeeMult);
-      state.car.speed *= hazardHit.cfg.speedKick;
-      state.shockTimer = Math.max(state.shockTimer, hazardHit.cfg.shock);
-      RR.Audio.sfx('tap');
-      triggerBanner(hazardHit.kind);
+      const hcfg = hazardHit.cfg;
+      RR.Career.addDamageAmount(state.career, hcfg.damage, dmgMult);
+      RR.Rage.flatBump(state.rage, hcfg.rageBump, coffeeMult);
+      state.car.speed *= hcfg.speedKick;
+      if (hcfg.lateralKnock) {
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        state.car.lateralVel = dir * hcfg.lateralKnock;
+      }
+      if (hcfg.stun) {
+        state.car.lateralVel = 0;
+        state.car.stunnedTimer = RR.Config.TRAFFIC.crashStunTime;
+      }
+      state.shockTimer = Math.max(state.shockTimer, hcfg.shock);
+      RR.Audio.sfx(hcfg.stun ? 'crash' : 'tap');
+      triggerBanner(hcfg.banner);
     }
     RR.Rage.update(state.rage, dt, state.car, state.traffic, input, coffeeMult);
     RR.Powerups.update(state.powerups, dt, state.car, state.rage, state.road);

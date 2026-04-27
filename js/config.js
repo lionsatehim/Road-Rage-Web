@@ -47,7 +47,6 @@ RR.Config = {
     shortcutReducePct: 75,    // -75% bar when you trigger a shortcut
     coffeeImmediateDrop: 20,  // -20 rage the moment coffee activates
     coffeeGainMult: 1.5,      // multiplier on all rage gains while coffee is active
-    potholeBump: 12,          // +1.2 ticks when you clip a pothole
 
     // ---- Horn (kept from prior tuning) ----
     hornRelief: 8,
@@ -59,6 +58,7 @@ RR.Config = {
     roadRageDrainRate: 12,
     roadRageSpeedBoost: 1.35,
     roadRageSteerBoost: 1.7,
+    roadRageDamageMult: 0,    // RR is invincibility — no damage taken
   },
 
   // ---- Stubs for upcoming layers (kept so layout is visible) ----
@@ -102,7 +102,6 @@ RR.Config = {
     damagePerCrash: 35,          // hard-crash damage units
     damagePerTap: 6,
     damagePerRam: 10,
-    damagePerPothole: 4,
     repairPerDamage: 4,          // $ per damage unit (multiplied by track.repairMult)
 
     // ---- Tracks ----
@@ -204,6 +203,22 @@ RR.Config = {
       color: '#ff9040',
       texts: ['THWACK!', 'KLUNK!', 'WHOMP!', 'KA-THUNK!', 'BUMP!', 'KRUNCH!'],
     },
+    puddle: {
+      color: '#60c8ff',
+      texts: ['SPLASH!', 'SPLOOSH!', 'SQUISH!', 'KER-PLUNK!', 'SOAKED!'],
+    },
+    oil: {
+      color: '#c8a0ff',
+      texts: ['SLIIICK!', 'WHEEEE...', 'WHOOPS!', 'SLIIIDE!', 'GREASY!'],
+    },
+    cones: {
+      color: '#ff8030',
+      texts: ['BWOMP!', 'SCATTER!', 'CLANK!', 'CRUNCH!', 'YOINK!'],
+    },
+    stoppedCar: {
+      color: '#ff5050',
+      texts: ['BREAKDOWN!', 'PARKED!', 'WHAM!', 'SMASHED!', 'OUCH!'],
+    },
   },
 
   // Audio overrides. Map any sfx, engine, or music name → file URL. If the
@@ -280,25 +295,58 @@ RR.Config = {
   PROMOTION: { /* layer 8 */ },
 
   // ---- Hazards ----
-  // On-road obstacles. Pass C is a single shared hazard (pothole) wired
-  // into all maps; later passes can add per-map types (oil slicks,
-  // construction barrels, etc.) by extending HAZARDS and giving each map
-  // its own roster.
+  // On-road obstacles. Each type defines its own footprint, draw style,
+  // and hit effect (rage bump, damage, speed kick, lateral knock, shock).
+  // Per-map rosters control which types appear where + at what density.
   HAZARDS: {
     spawnAheadY: -16,
-    pothole: {
-      width: 14, height: 8,
-      rageBump: 12,           // mirrors RAGE.potholeBump for visibility
-      speedKick: 0.55,        // car.speed *= this on hit
-      shock: 0.4,              // shockTimer floor (full-screen shake)
-      // Per-map mean spawn interval (seconds). City roads are bumpier than
-      // rural; tweak to taste once obstacles share screen with traffic.
-      interval: {
-        rural:  [3.5, 6.0],
-        suburb: [2.4, 4.0],
-        exurb:  [1.8, 3.2],
-        city:   [1.4, 2.6],
+    types: {
+      pothole: {
+        width: 14, height: 8,
+        rageBump: 12, damage: 4,
+        speedKick: 0.55, lateralKnock: 0,
+        shock: 0.4, banner: 'pothole',
       },
+      puddle: {
+        // Wider footprint; light rage, no damage, but knocks you sideways
+        // as the tires hydroplane.
+        width: 22, height: 10,
+        rageBump: 5, damage: 0,
+        speedKick: 0.85, lateralKnock: 60,
+        shock: 0.2, banner: 'puddle',
+      },
+      oil: {
+        // Slipperier than water — bigger lateral knock, modest speed loss.
+        width: 22, height: 11,
+        rageBump: 8, damage: 0,
+        speedKick: 0.78, lateralKnock: 110,
+        shock: 0.3, banner: 'oil',
+      },
+      cones: {
+        // Small but punishing — clipping a cone is a clear "you screwed up".
+        width: 10, height: 12,
+        rageBump: 10, damage: 3,
+        speedKick: 0.7, lateralKnock: 0,
+        shock: 0.3, banner: 'cones',
+      },
+      stoppedCar: {
+        // Broken-down vehicle parked on the shoulder. Only a threat if the
+        // player drifts off-road (coffee shoulder slack, evasive swerve).
+        // Hits like a wall: full stop + stun, big rage bump.
+        width: 16, height: 24,
+        rageBump: 25, damage: 22,
+        speedKick: 0, lateralKnock: 0,
+        shock: 0.6, banner: 'stoppedCar',
+        placement: 'shoulder', stun: true,
+      },
+    },
+    // Per-map roster (type → spawn weight) and mean spawn interval (sec).
+    // Shoulder-stopped cars are uncommon — one or two per shift on average.
+    perMap: {
+      rural:  { interval: [3.5, 6.0], roster: { pothole: 5, puddle: 3, stoppedCar: 1 } },
+      suburb: { interval: [2.4, 4.0], roster: { pothole: 5, puddle: 2, cones: 1, stoppedCar: 1 } },
+      exurb:  { interval: [1.8, 3.2], roster: { pothole: 4, oil: 2, cones: 3, stoppedCar: 1 } },
+      city:   { interval: [1.4, 2.6], roster: { pothole: 2, oil: 4, cones: 4, stoppedCar: 1 } },
     },
   },
 };

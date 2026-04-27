@@ -49,16 +49,19 @@ RR.Rage = (function () {
   // one that crosses the 100 threshold, flag justEnteredFromCrash so the UI
   // can call out that rage mode is now available.
   function onHit(rage, kind, mult) {
-    let amount = 0;
-    if (kind === 'crash' || kind === 'tap') amount = C.RAGE.crashBump;
-    else if (kind === 'pothole') amount = C.RAGE.potholeBump;
-    else return;
+    if (kind !== 'crash' && kind !== 'tap') return;
     const before = rage.level;
-    add(rage, amount, mult);
-    // Potholes don't auto-trigger RR mode — too cheesable as a self-trigger.
-    if (kind !== 'pothole' && before < 100 && rage.level >= 100 && !isRoadRage(rage)) {
+    add(rage, C.RAGE.crashBump, mult);
+    if (before < 100 && rage.level >= 100 && !isRoadRage(rage)) {
       rage.crashAboutToTriggerRR = true;
     }
+  }
+
+  // Flat bump for non-traffic events (hazards). Doesn't auto-trigger Road
+  // Rage — those triggers are reserved for traffic contact so a player
+  // can't farm rage by deliberately running into hazards.
+  function flatBump(rage, amount, mult) {
+    add(rage, amount, mult);
   }
 
   // Multiplicative reduction (jump landing, shortcut). Clamped at 0.
@@ -197,6 +200,6 @@ RR.Rage = (function () {
   return {
     create, update, isRoadRage,
     onHit, onHardCrash, tagSpawn,
-    reducePct, reduceFlat,
+    reducePct, reduceFlat, flatBump,
   };
 })();

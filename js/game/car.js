@@ -14,6 +14,7 @@ RR.Car = (function () {
       speed: 0,
       lateralVel: 0,
       stunnedTimer: 0,
+      braking: false,
     };
   }
 
@@ -45,11 +46,14 @@ RR.Car = (function () {
     const lateralMax     = cfg.lateralMaxSpeed * steerMul;
     const lateralAccel   = cfg.lateralAccel * steerMul;
 
+    car.braking = !!input.brake && car.speed > 0;
+
     // Stunned: frozen, no input.
     if (car.stunnedTimer > 0) {
       car.stunnedTimer -= dt;
       car.speed = 0;
       car.lateralVel = 0;
+      car.braking = false;
       if (car.stunnedTimer < 0) car.stunnedTimer = 0;
       return;
     }

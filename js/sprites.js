@@ -140,6 +140,9 @@ RR.Sprites = (function () {
     return c;
   }
   const PLAYER_RAGING = tinted(PLAYER, 'rgba(230, 50, 50, 0.55)');
+  // Star-power flicker — alternates with PLAYER_RAGING during Road Rage so
+  // the car reads as "invincible / electric" rather than just "angry".
+  const PLAYER_RAGING_YELLOW = tinted(PLAYER, 'rgba(255, 220, 60, 0.60)');
 
   // ---- Pickup sprites: 14x14 each, drawn on the road. ----
   // Coffee — brown cup, white lid, steam wisps. 'c' cup, 'l' lid, 's' steam, 'h' handle.
@@ -404,5 +407,5 @@ RR.Sprites = (function () {
     tower: M_TOWER, streetlight: M_STREETLIGHT, billboard: M_BILLBOARD,
   };
 
-  return { makeSprite, draw, PLAYER, PLAYER_RAGING, NPC_VARIANTS, PICKUPS, MAP };
+  return { makeSprite, draw, PLAYER, PLAYER_RAGING, PLAYER_RAGING_YELLOW, NPC_VARIANTS, PICKUPS, MAP };
 })();

@@ -98,15 +98,17 @@ RR.Road = (function () {
     let visualLanes = seg.lanes;
     let activeLanes = seg.lanes;
     let transitionT = 0;
+    let transitionAlpha = 0;
     let transitionDir = 0;
     if (inTransition) {
       const t = (distFromBoundary + transHalf) / road.transitionLen;
       visualLanes = prevSeg.lanes + (seg.lanes - prevSeg.lanes) * t;
       activeLanes = Math.min(prevSeg.lanes, seg.lanes);
       transitionT = 1 - 2 * Math.abs(t - 0.5);
+      transitionAlpha = t;
       transitionDir = seg.lanes > prevSeg.lanes ? 1 : -1;
     }
-    return { lanes: seg.lanes, prevLanes: prevSeg.lanes, visualLanes, activeLanes, transitionT, transitionDir };
+    return { lanes: seg.lanes, prevLanes: prevSeg.lanes, visualLanes, activeLanes, transitionT, transitionAlpha, transitionDir };
   }
 
   // Widest the road ever gets across the whole shift — used by map deco
@@ -151,6 +153,30 @@ RR.Road = (function () {
     return out;
   }
 
+  // Active-lane centers at any worldY — used by traffic so each NPC can be
+  // re-pinned + clamped against the road geometry at its own screen row,
+  // not the player's. This keeps NPCs on-road during lane transitions.
+  function laneCentersAt(road, wy) {
+    const g = geometryAt(road, wy);
+    const center = C.INTERNAL_WIDTH / 2;
+    const w = g.activeLanes * LANE_W;
+    const left = center - w / 2;
+    const out = [];
+    for (let i = 0; i < g.activeLanes; i++) {
+      out.push(left + LANE_W * (i + 0.5));
+    }
+    return out;
+  }
+
+  // Visual road edges at any worldY (the white lines you see). Asphalt is
+  // exactly between these. Used for clamping NPC.x.
+  function edgesAt(road, wy) {
+    const g = geometryAt(road, wy);
+    const center = C.INTERNAL_WIDTH / 2;
+    const w = g.visualLanes * LANE_W;
+    return { left: center - w / 2, right: center + w / 2 };
+  }
+
   function nearestLane(road, x) {
     const centers = laneCenters(road);
     let best = centers[0], bd = Infinity;
@@ -184,39 +210,59 @@ RR.Road = (function () {
       rows[y] = { wy, g: geometryAt(road, wy) };
     }
 
+    // Pre-round per-row width so asphalt and edge lines snap to the same
+    // integer columns — otherwise the white edges and the dark surface drift
+    // by a pixel relative to each other during a transition.
+    const widths = new Array(H);
+    const lefts  = new Array(H);
+    for (let y = 0; y < H; y++) {
+      const visW = Math.round(rows[y].g.visualLanes * LANE_W);
+      widths[y] = visW;
+      lefts[y]  = Math.round(center - visW / 2);
+    }
+
     // Asphalt
     ctx.fillStyle = '#3c3c3c';
     for (let y = 0; y < H; y++) {
-      const visW = rows[y].g.visualLanes * LANE_W;
-      const left = center - visW / 2;
-      ctx.fillRect(left | 0, y, Math.ceil(visW) + 1, 1);
+      ctx.fillRect(lefts[y], y, widths[y], 1);
     }
 
     // Outer edge lines (2 px wide, full height — drawn per row to track curve
     // of the changing width).
     ctx.fillStyle = '#e8e8e8';
     for (let y = 0; y < H; y++) {
-      const visW = rows[y].g.visualLanes * LANE_W;
-      const left = center - visW / 2;
-      const right = center + visW / 2;
-      ctx.fillRect(Math.round(left), y, 2, 1);
-      ctx.fillRect(Math.round(right - 2), y, 2, 1);
+      const left = lefts[y];
+      const right = left + widths[y];
+      ctx.fillRect(left, y, 2, 1);
+      ctx.fillRect(right - 2, y, 2, 1);
     }
 
-    // Dashed lane stripes between active (stable) lanes. The dash phase is
-    // driven by worldY directly, so stripes scroll naturally with traffic.
-    ctx.fillStyle = '#e8c020';
+    // Dashed lane stripes. Outside the transition zone we use the segment's
+    // lane count directly. Inside the zone we crossfade between the prev and
+    // cur layouts (prev fading out, cur fading in) so the stripe pattern
+    // morphs smoothly across the boundary instead of snapping.
+    function paintStripes(yRow, lanes, fill) {
+      if (lanes < 2) return;
+      ctx.fillStyle = fill;
+      const w = lanes * LANE_W;
+      const left = center - w / 2;
+      for (let l = 1; l < lanes; l++) {
+        const sx = (left + LANE_W * l - 1) | 0;
+        ctx.fillRect(sx, yRow, 2, 1);
+      }
+    }
     for (let y = 0; y < H; y++) {
       const wy = rows[y].wy;
       const phase = ((wy % dash) + dash) % dash;
       if (phase >= sH) continue;
       const g = rows[y].g;
-      if (g.activeLanes < 2) continue;
-      const actW = g.activeLanes * LANE_W;
-      const activeLeft = center - actW / 2;
-      for (let l = 1; l < g.activeLanes; l++) {
-        const sx = (activeLeft + LANE_W * l - 1) | 0;
-        ctx.fillRect(sx, y, 2, 1);
+      const inTrans = g.transitionAlpha > 0 && g.lanes !== g.prevLanes;
+      if (!inTrans) {
+        paintStripes(y, g.lanes, '#e8c020');
+      } else {
+        const t = g.transitionAlpha;
+        paintStripes(y, g.prevLanes, 'rgba(232,192,32,' + (1 - t).toFixed(3) + ')');
+        paintStripes(y, g.lanes,     'rgba(232,192,32,' + t.toFixed(3) + ')');
       }
     }
 
@@ -226,13 +272,13 @@ RR.Road = (function () {
     for (let y = 0; y < H; y++) {
       const g = rows[y].g;
       if (g.transitionT <= 0) continue;
-      const visW = g.visualLanes * LANE_W;
+      const visW = widths[y];
       const actW = g.activeLanes * LANE_W;
       if (Math.abs(visW - actW) <= 1) continue;
       const phase = ((rows[y].wy % dash) + dash) % dash;
       if (phase >= 4) continue;
-      const leftEdge = center - visW / 2;
-      const rightEdge = center + visW / 2;
+      const leftEdge = lefts[y];
+      const rightEdge = leftEdge + visW;
       const ghostHalf = (visW - actW) / 2;
       const lcx = (leftEdge + ghostHalf / 2) | 0;
       const rcx = (rightEdge - ghostHalf / 2) | 0;
@@ -241,5 +287,8 @@ RR.Road = (function () {
     }
   }
 
-  return { create, update, bounds, laneCenters, nearestLane, laneWidth, maxWidth, draw };
+  return {
+    create, update, bounds, laneCenters, laneCentersAt, edgesAt,
+    nearestLane, laneWidth, maxWidth, draw,
+  };
 })();

@@ -134,12 +134,18 @@ RR.Career = (function () {
   }
 
   // Damage from collisions. Called by main on hit detection.
-  function addDamage(s, kind) {
+  function addDamage(s, kind, mult) {
     const cc = C.CAREERS;
-    if (kind === 'crash') s.damage += cc.damagePerCrash;
-    else if (kind === 'tap') s.damage += cc.damagePerTap;
-    else if (kind === 'ram') s.damage += cc.damagePerRam;
-    else if (kind === 'pothole') s.damage += cc.damagePerPothole;
+    const m = (mult === undefined) ? 1 : mult;
+    if (kind === 'crash') s.damage += cc.damagePerCrash * m;
+    else if (kind === 'tap') s.damage += cc.damagePerTap * m;
+    else if (kind === 'ram') s.damage += cc.damagePerRam * m;
+  }
+
+  // Direct damage (for hazards which carry their own damage values).
+  function addDamageAmount(s, amount, mult) {
+    const m = (mult === undefined) ? 1 : mult;
+    if (amount > 0) s.damage += amount * m;
   }
 
   function repairCost(s) {
@@ -296,7 +302,7 @@ RR.Career = (function () {
     load, save, clearSave, emptyState,
     pickTrack, assignCity,
     startShift, tickShift, finishShift,
-    addDamage, repairCost,
+    addDamage, addDamageAmount, repairCost,
     trackCfg, levelCfg, currentMapType,
     stressTier, promoProgress,
     shiftDeadline,
