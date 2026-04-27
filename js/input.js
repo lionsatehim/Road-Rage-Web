@@ -9,6 +9,8 @@ RR.Input = (function () {
     'Escape', 'KeyP', 'KeyM',
     'Space', 'ShiftLeft', 'ShiftRight',
     'KeyL', 'Enter',
+    'Digit1', 'Digit2', 'Digit3',
+    'KeyR',
   ]);
 
   window.addEventListener('keydown', (e) => {

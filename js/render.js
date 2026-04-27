@@ -249,13 +249,81 @@ RR.Render = (function () {
 
     const mph = Math.round(s.car.speed * C.CAR.mphFactor);
     ctx.textAlign = 'left';
-    ctx.fillText('RUSH HOUR', 4, 4);
+    // Career line replaces the placeholder title once a track is picked.
+    if (s.career && s.career.track) {
+      const lvl = RR.Career.levelCfg(s.career);
+      ctx.fillText(lvl.title.toUpperCase(), 4, 4);
+      ctx.fillStyle = '#ffe060';
+      ctx.fillText(s.career.city || '', 4, 14);
+      ctx.fillStyle = '#fff';
+    } else {
+      ctx.fillText('RUSH HOUR', 4, 4);
+    }
     ctx.textAlign = 'right';
     ctx.fillText(mph + ' MPH', C.INTERNAL_WIDTH - 4, 4);
     ctx.textAlign = 'left';
 
     drawRageMeter(ctx, s.rage, t);
     drawPowerupSlot(ctx, s.powerups, t);
+    if (s.career && s.career.track) drawCareerHUD(ctx, s);
+  }
+
+  // Drive-HUD additions: deadline countdown, distance bar, lifetime earnings,
+  // and the promo/demote streak ribbons. Bottom-right corner so it doesn't
+  // collide with the powerup slot on the bottom-left.
+  function drawCareerHUD(ctx, s) {
+    const cc = RR.Config.CAREERS;
+    const car = s.career;
+    const sh = car.shift;
+    if (!sh) return;
+
+    const W = C.INTERNAL_WIDTH;
+    const H = C.INTERNAL_HEIGHT;
+
+    // Distance progress bar — below the rage meter so they don't overlap.
+    const distFrac = Math.min(1, sh.distance / cc.shiftDistance);
+    const barX = 4, barY = 26, barW = W - 8, barH = 2;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = '#60c8ff';
+    ctx.fillRect(barX, barY, Math.round(barW * distFrac), barH);
+
+    // Deadline countdown — top-right under MPH.
+    const remain = Math.max(0, sh.deadline - sh.elapsed);
+    const late = sh.elapsed > sh.deadline;
+    ctx.font = '8px "Courier New", monospace';
+    ctx.fillStyle = late ? '#ff6060' : (remain < 5 ? '#ffaa00' : '#aef');
+    ctx.textAlign = 'right';
+    const mins = Math.floor(remain / 60);
+    const secs = Math.floor(remain % 60);
+    const time = late
+      ? '-' + Math.floor(sh.elapsed - sh.deadline) + 's'
+      : mins + ':' + secs.toString().padStart(2, '0');
+    ctx.fillText(time, W - 4, 16);
+
+    // Lifetime earnings + promo dots, bottom-right.
+    const tcfg = RR.Career.trackCfg(car);
+    ctx.fillStyle = '#9eea9e';
+    ctx.fillText('$' + car.lifetimeEarnings, W - 4, H - 22);
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('REPAIR $' + RR.Career.repairCost(car), W - 4, H - 12);
+
+    // Promo dots: filled per current promoStreak, hollow for needed total.
+    const need = tcfg.promoteStreak || 3;
+    const dotY = H - 32, dotR = 3;
+    let dotX = W - 6;
+    for (let i = need - 1; i >= 0; i--) {
+      const filled = i < car.promoStreak;
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = filled ? '#7fe07f' : '#222';
+      ctx.fill();
+      ctx.strokeStyle = '#7fe07f';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      dotX -= dotR * 2 + 2;
+    }
+    ctx.textAlign = 'left';
   }
 
   function drawPowerupSlot(ctx, p, t) {
@@ -353,6 +421,253 @@ RR.Render = (function () {
     ctx.textBaseline = 'top';
   }
 
+  // Career select screen. Shown only at game start (or after retiring / game
+  // over). Three tracks, picked with 1/2/3.
+  function drawCareerSelect(ctx, t) {
+    const W = C.INTERNAL_WIDTH, H = C.INTERNAL_HEIGHT;
+    ctx.fillStyle = '#101820';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffe060';
+    ctx.fillText('RUSH HOUR RAGE', W / 2, 22);
+
+    ctx.font = '8px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('PICK YOUR CAREER', W / 2, 38);
+
+    const tracks = [
+      { key: '1', name: 'Skilled Trades', tag: 'Balanced',  color: '#9eea9e' },
+      { key: '2', name: 'Finance',        tag: '$$$ / High stress', color: '#ffe060' },
+      { key: '3', name: 'Teacher',        tag: 'Low pay / Low stress', color: '#a0d8ff' },
+    ];
+
+    const rowH = 38;
+    const startY = 60;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+    for (let i = 0; i < tracks.length; i++) {
+      const tr = tracks[i];
+      const y = startY + i * rowH;
+      ctx.fillStyle = '#1c2a36';
+      ctx.fillRect(20, y, W - 40, rowH - 6);
+      ctx.strokeStyle = tr.color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(20.5, y + 0.5, W - 41, rowH - 7);
+
+      ctx.font = 'bold 10px "Courier New", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = tr.color;
+      ctx.fillText(tr.key + '.', 28, y + 8);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(tr.name, 44, y + 8);
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = '#9aa';
+      ctx.fillText(tr.tag, 44, y + 22);
+    }
+
+    ctx.font = '8px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = pulse > 0.5 ? '#fff' : '#888';
+    ctx.fillText('PRESS 1, 2, OR 3', W / 2, H - 14);
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+
+  // Post-shift summary modal: pay breakdown, streak update, promo/demo ribbon.
+  function drawShiftEnd(ctx, career) {
+    const r = career.lastResult;
+    if (!r) return;
+    const W = C.INTERNAL_WIDTH, H = C.INTERNAL_HEIGHT;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(0, 0, W, H);
+
+    const boxX = 16, boxW = W - 32;
+    const boxY = 22, boxH = H - 44;
+    ctx.fillStyle = '#0e1620';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
+
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 10px "Courier New", monospace';
+
+    let header = 'SHIFT COMPLETE';
+    let headColor = '#9eea9e';
+    if (r.raging) { header = 'YOU ARRIVED IN A RAGE'; headColor = '#ff6060'; }
+    else if (r.late) { header = 'YOU WERE LATE'; headColor = '#ffaa40'; }
+    ctx.fillStyle = headColor;
+    ctx.fillText(header, W / 2, boxY + 6);
+
+    ctx.font = '8px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    let y = boxY + 22;
+    const lx = boxX + 8, rx = boxX + boxW - 8;
+
+    function row(label, value, color) {
+      ctx.fillStyle = '#aaa';
+      ctx.textAlign = 'left';
+      ctx.fillText(label, lx, y);
+      ctx.fillStyle = color || '#fff';
+      ctx.textAlign = 'right';
+      ctx.fillText(value, rx, y);
+      y += 10;
+    }
+
+    row('Time', formatTime(r.elapsed) + ' / ' + formatTime(r.deadline),
+        r.late ? '#ff8060' : '#9eea9e');
+    row('Stress', stressLabel(r), stressColor(r));
+    if (r.cheerDrop > 0) {
+      row('Kids cheered', '-' + Math.round(r.cheerDrop) + ' rage', '#a0d8ff');
+    }
+    y += 2;
+    row('Base pay',  '$' + r.base,  '#fff');
+    if (r.bonusPct > 0) {
+      row('Bonus',   '+' + pct(r.bonusPct), '#9eea9e');
+    }
+    if (r.penaltyPct > 0) {
+      row('Late penalty', '-' + pct(r.penaltyPct), '#ff8060');
+    }
+    if (r.preRepair > 0) {
+      row('Repair (last)', '-$' + r.preRepair, '#ff8060');
+    }
+    y += 2;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(lx, y - 2, boxW - 16, 1);
+    row('PAY', '$' + r.pay, r.pay > 0 ? '#9eea9e' : '#888');
+    y += 2;
+    row('Lifetime',   '$' + career.lifetimeEarnings, '#ffe060');
+
+    // Promo / demo ribbon.
+    if (r.promoted) {
+      drawRibbon(ctx, '★ PROMOTED ★', r.newLevelTitle + ' — ' + r.newCity, '#ffe060', boxX, boxY + boxH - 36, boxW);
+    } else if (r.demoted) {
+      drawRibbon(ctx, '▼ DEMOTED ▼', r.newLevelTitle + ' — ' + r.newCity, '#ff8060', boxX, boxY + boxH - 36, boxW);
+    } else {
+      drawStreakRow(ctx, career, r, boxX, boxY + boxH - 32, boxW);
+    }
+
+    // Continue prompt.
+    ctx.font = '8px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('PRESS ENTER', W / 2, boxY + boxH - 10);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+
+  function drawRibbon(ctx, head, sub, color, x, y, w) {
+    ctx.fillStyle = '#1c2a36';
+    ctx.fillRect(x + 4, y, w - 8, 22);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 4.5, y + 0.5, w - 9, 21);
+    ctx.font = 'bold 9px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+    ctx.fillText(head, x + w / 2, y + 4);
+    ctx.font = '8px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(sub, x + w / 2, y + 14);
+  }
+
+  function drawStreakRow(ctx, career, r, x, y, w) {
+    const tcfg = RR.Career.trackCfg(career);
+    ctx.font = '8px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Promo', x + 8, y);
+    drawDots(ctx, x + 50, y + 4, career.promoStreak, tcfg.promoteStreak || 3, '#9eea9e');
+
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Late',  x + 8, y + 12);
+    drawDots(ctx, x + 50, y + 16, career.lateStreak, tcfg.demoteStreak || 3, '#ffaa40');
+
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Rage',  x + w / 2 + 8, y + 12);
+    drawDots(ctx, x + w / 2 + 50, y + 16, career.rageStreak, tcfg.demoteStreak || 3, '#ff6060');
+    ctx.textAlign = 'left';
+  }
+
+  function drawDots(ctx, x, y, filled, total, color) {
+    for (let i = 0; i < total; i++) {
+      const cx = x + i * 8;
+      ctx.beginPath();
+      ctx.arc(cx, y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = i < filled ? color : '#222';
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  function drawGameOver(ctx, career) {
+    const W = C.INTERNAL_WIDTH, H = C.INTERNAL_HEIGHT;
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.font = 'bold 16px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ff6060';
+    ctx.fillText('GAME OVER', W / 2, H / 2 - 30);
+    ctx.font = '8px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('You were fired.', W / 2, H / 2 - 10);
+    ctx.fillStyle = '#ffe060';
+    ctx.fillText('Lifetime earnings: $' + career.lifetimeEarnings, W / 2, H / 2 + 6);
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Press R or Enter to start over', W / 2, H / 2 + 26);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+
+  function drawRetired(ctx, career) {
+    const W = C.INTERNAL_WIDTH, H = C.INTERNAL_HEIGHT;
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.font = 'bold 16px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffe060';
+    ctx.fillText('RETIRED', W / 2, H / 2 - 36);
+    ctx.font = '8px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Congratulations.', W / 2, H / 2 - 14);
+    ctx.fillText('You hit the magic number.', W / 2, H / 2 - 4);
+    ctx.fillStyle = '#9eea9e';
+    ctx.fillText('Lifetime earnings: $' + career.lifetimeEarnings, W / 2, H / 2 + 14);
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Shifts worked: ' + career.shiftsWorked, W / 2, H / 2 + 24);
+    ctx.fillText('Press R or Enter for a new life', W / 2, H / 2 + 40);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+
+  function formatTime(secs) {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return m + ':' + s.toString().padStart(2, '0');
+  }
+  function pct(p) { return Math.round(p * 100) + '%'; }
+  function stressLabel(r) {
+    if (r.raging) return 'RAGING';
+    if (r.tier === 'low')  return 'Calm';
+    if (r.tier === 'mid')  return 'Tense';
+    return 'Stressed';
+  }
+  function stressColor(r) {
+    if (r.raging) return '#ff6060';
+    if (r.tier === 'low')  return '#9eea9e';
+    if (r.tier === 'mid')  return '#ffe060';
+    return '#ff8060';
+  }
+
   function drawPause(ctx) {
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, C.INTERNAL_WIDTH, C.INTERNAL_HEIGHT);
@@ -369,5 +684,6 @@ RR.Render = (function () {
     clear, drawRoad, drawCar, drawHUD, drawPause, drawBanner,
     drawRoadRageVignette, drawShortcutFlash, drawCoffeeVignette,
     drawShoulderStrips, drawTireMarks,
+    drawCareerSelect, drawShiftEnd, drawGameOver, drawRetired,
   };
 })();

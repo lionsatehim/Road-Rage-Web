@@ -75,7 +75,82 @@ RR.Config = {
       brakeCheck: { speedFrac: [0.55, 0.75], weight: 1 },
     },
   },
-  CAREERS:   { /* layer 4-5 */ },
+  CAREERS: {
+    // ---- Global shift parameters ----
+    retirementTarget: 100000,    // lifetime $ to retire (win condition)
+    shiftDistance: 6000,         // worldOffset px to reach the workplace
+    targetAvgSpeedFrac: 0.7,     // fraction of maxSpeed used to compute deadline
+    deadlineCushion: 1.25,       // multiplier on top of the target time
+
+    // ---- Stress tiers (rage meter at arrival) ----
+    rageOnArrivalThreshold: 90,  // ≥ this OR currently in Road Rage = "raging"
+    stressLow: 33,               // < this = bottom third (bonus)
+    stressHigh: 66,              // < stressHigh = middle, ≥ = top third (penalty)
+
+    // ---- Pay shaping ----
+    bonusEarlyMaxPct: 0.5,       // cap on early-arrival bonus (+50% of base)
+    penaltyLateMaxPct: 1.0,      // cap on late deduction (-100% of base)
+    stressLowBonusPct: 0.15,     // extra bonus when arriving in bottom-third stress
+    stressHighPenaltyPct: 0.20,  // bonus reduction when arriving in top-third stress
+
+    // ---- Damage / repair ----
+    damagePerCrash: 35,          // hard-crash damage units
+    damagePerTap: 6,
+    damagePerRam: 10,
+    repairPerDamage: 4,          // $ per damage unit (multiplied by track.repairMult)
+
+    // ---- Tracks ----
+    // Each track has its own promote/demote streak length (default 3) plus
+    // signature flavor knobs and a 4-step ladder.
+    tracks: {
+      trades: {
+        name: 'Skilled Trades',
+        promoteStreak: 3,
+        demoteStreak: 3,
+        repairMult: 0.6,                 // signature: cheaper repairs
+        // Inverted ladder: apprentices get the gnarly downtown gigs,
+        // contractors pick easy suburban jobs.
+        levels: [
+          { title: 'Apprentice', basePay: 80,  city: 'Downtown',   trafficMult: 1.4 },
+          { title: 'Technician', basePay: 110, city: 'Industrial', trafficMult: 1.2 },
+          { title: 'Foreman',    basePay: 150, city: 'Suburban',   trafficMult: 1.0 },
+          { title: 'Contractor', basePay: 220, city: 'Rural',      trafficMult: 0.7 },
+        ],
+      },
+      finance: {
+        name: 'Finance',
+        promoteStreak: 3,
+        demoteStreak: 3,
+        repairMult: 1.0,
+        stressTierShift: 1,              // signature: each tier counts one easier
+        levels: [
+          { title: 'Bank Teller',     basePay: 70,  city: 'Suburbia',         trafficMult: 1.0 },
+          { title: 'Bank Manager',    basePay: 130, city: 'Satellite Office', trafficMult: 1.1 },
+          { title: 'Bank Executive',  basePay: 240, city: 'Downtown',         trafficMult: 1.3 },
+          { title: 'CEO',             basePay: 420, city: 'Top Floor',        trafficMult: 1.5 },
+        ],
+      },
+      teacher: {
+        name: 'Teacher',
+        promoteStreak: 3,
+        demoteStreak: 3,
+        repairMult: 1.0,
+        // Signature: kids cheer on time/early, pulling rage down before stress
+        // tier is computed (so a near-rage teacher can still earn a bonus).
+        cheerMinDropPct: 5,
+        cheerMaxDropPct: 25,
+        // Cities are pulled at random on each (re)assignment instead of a
+        // fixed ladder — teachers get whatever opening exists.
+        cities: ['Riverside', 'Hilltop', 'Lakeside', 'Pine Grove', 'Oakwood', 'Greenfield'],
+        levels: [
+          { title: 'Substitute',      basePay: 50,  trafficMult: 1.0 },
+          { title: 'New Teacher',     basePay: 75,  trafficMult: 1.0 },
+          { title: 'Tenured Teacher', basePay: 105, trafficMult: 1.0 },
+          { title: 'Principal',       basePay: 150, trafficMult: 1.0 },
+        ],
+      },
+    },
+  },
   POWERUPS: {
     // Pickup spawning
     spawnInterval: [4.5, 8.0],   // seconds between attempts
