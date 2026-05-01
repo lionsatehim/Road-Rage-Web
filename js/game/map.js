@@ -34,12 +34,12 @@ RR.Map = (function () {
     const sprite = RR.Sprites.MAP[name];
     if (!sprite) return;
     const W = C.INTERNAL_WIDTH;
-    // Use the widest the road ever gets so a deco placed now isn't covered
-    // by a later, wider segment scrolling onto it.
-    const center = W / 2;
-    const maxW = road ? RR.Road.maxWidth(road) : C.ROAD.width;
-    const leftEdge  = road ? center - maxW / 2 : C.ROAD.x;
-    const rightEdge = road ? center + maxW / 2 : C.ROAD.x + C.ROAD.width;
+    // Use the worst-case road extents (across all segments — the road may
+    // drift left or right per the variable-lanes schedule) so decorations
+    // never end up under a future segment.
+    const ext = road && RR.Road.extents ? RR.Road.extents(road) : null;
+    const leftEdge  = ext ? ext.minLeft  : (road ? C.INTERNAL_WIDTH / 2 - RR.Road.maxWidth(road) / 2 : C.ROAD.x);
+    const rightEdge = ext ? ext.maxRight : (road ? C.INTERNAL_WIDTH / 2 + RR.Road.maxWidth(road) / 2 : C.ROAD.x + C.ROAD.width);
     const margin = 4;
     const left = Math.random() < 0.5;
     let x;

@@ -1,26 +1,38 @@
-// Variable lanes. The road's lane count can change mid-shift; this module
-// owns the per-shift schedule of segments along worldOffset and the live
-// geometry (edges, lane centers) used by the rest of the game.
+// Road geometry with one-sided lane changes.
 //
-// Geometry is centered on the canvas (INTERNAL_WIDTH / 2). When lane count
-// changes the road expands/contracts symmetrically — both edges move by
-// half the new-lane width. Lane centers shift slightly per change; NPCs
-// glide to new centers via their existing approach() lateral inertia, so
-// the drift looks like a smooth merge rather than a snap.
+// Each segment carries absolute leftEdge / rightEdge (in screen X). When a
+// transition happens, exactly one side moves — the other stays put. That
+// matches how real highways add or drop a lane: the outer edge juts out
+// (or in) on one side; the lanes that survive don't shift sideways.
 //
-// A transition zone spans `transitionLen` px centered on each segment
-// boundary. During the zone:
-//   - visualLanes (float) interpolates from prev → current
-//   - activeLanes = min(prev, current) — only the lanes that exist throughout
-//     are valid spawn / target positions, so traffic doesn't appear in
-//     half-formed lanes
-//   - the symmetric "ghost" strip on each side shows orange dotted markers
-//     warning of the lane that's appearing / disappearing
+// Schedule rules:
+//   - first segment is centered on screen
+//   - each transition rolls a delta in {-1, 0, +1}, weighted toward 0 so we
+//     get long flat stretches; clamped to [min, max]
+//   - if the road's center is off-screen-center, the side is forced so the
+//     change pulls the center back toward 0 (drift bounded to ±LANE_W/2)
+//   - if centered, side is random
+//
+// Visual:
+//   - asphalt + edge lines per row, sourced from geometryAt(wy)
+//   - surviving lane stripes are dead-straight through the transition zone
+//     (no V-shapes, no crossfade) since their X positions don't change
+//   - the appearing / closing lane has a dotted "warning" stripe at the
+//     boundary X through the transition zone — visually the line peels
+//     off the wall (opening) or gets absorbed by the wall (closing)
 window.RR = window.RR || {};
 
 RR.Road = (function () {
   const C = RR.Config;
   const LANE_W = 28;
+
+  function smoothstep(t) {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    return t * t * (3 - 2 * t);
+  }
+
+  // ---- Schedule ----
 
   function buildSchedule(mapType, totalDistance) {
     const cfg = C.MAPS[mapType] || C.MAPS.suburb;
@@ -29,26 +41,72 @@ RR.Road = (function () {
     const minL = lanesCfg.min;
     const maxL = lanesCfg.max;
     const [segLo, segHi] = lanesCfg.segment;
+    const screenC = C.INTERNAL_WIDTH / 2;
+
     const segs = [];
     let pos = 0;
-    let prevCount = null;
-    // Build segments slightly past the end so we always have a defined road
-    // at any worldOffset the player might reach.
+
+    // First segment: centered on screen.
+    let curLanes = minL + Math.floor(Math.random() * (maxL - minL + 1));
+    let leftEdge = screenC - curLanes * LANE_W / 2;
+    let rightEdge = leftEdge + curLanes * LANE_W;
+    let segLen = segLo + Math.random() * (segHi - segLo);
+    segs.push({
+      start: pos, end: pos + segLen,
+      lanes: curLanes, leftEdge, rightEdge,
+      changeSide: null,
+    });
+    pos += segLen;
+
+    // Subsequent segments. Roll delta + side per the centered-bias rule.
     while (pos < totalDistance + 400) {
-      let count;
-      if (minL === maxL) {
-        count = minL;
-      } else {
-        for (let attempt = 0; attempt < 6; attempt++) {
-          count = minL + Math.floor(Math.random() * (maxL - minL + 1));
-          if (count !== prevCount) break;
+      // Δ weighted: 60% no change, 20% +1, 20% −1. Long flat stretches by
+      // default; transitions happen but aren't constant.
+      const r = Math.random();
+      let delta = (r < 0.6) ? 0 : (r < 0.8 ? 1 : -1);
+      let nextLanes = curLanes + delta;
+      // If the roll would push us out of [min, max], stay flat. Avoids
+      // biasing the schedule toward bouncing off the bounds.
+      if (nextLanes < minL || nextLanes > maxL) {
+        delta = 0;
+        nextLanes = curLanes;
+      }
+
+      let side = null;
+      if (delta !== 0) {
+        const drift = (leftEdge + rightEdge) / 2 - screenC;
+        if (drift > 0.5) {
+          // Biased right → must move center left.
+          side = (delta > 0) ? 'left' : 'right';
+        } else if (drift < -0.5) {
+          // Biased left → must move center right.
+          side = (delta > 0) ? 'right' : 'left';
+        } else {
+          side = (Math.random() < 0.5) ? 'left' : 'right';
         }
       }
-      const segLen = segLo + Math.random() * (segHi - segLo);
-      const end = pos + segLen;
-      segs.push({ start: pos, end, lanes: count });
-      pos = end;
-      prevCount = count;
+
+      // Apply edge change.
+      let newLeft = leftEdge, newRight = rightEdge;
+      if (delta > 0) {
+        if (side === 'left')  newLeft  = leftEdge  - LANE_W;
+        else                   newRight = rightEdge + LANE_W;
+      } else if (delta < 0) {
+        if (side === 'left')  newLeft  = leftEdge  + LANE_W;
+        else                   newRight = rightEdge - LANE_W;
+      }
+
+      curLanes  = nextLanes;
+      leftEdge  = newLeft;
+      rightEdge = newRight;
+
+      segLen = segLo + Math.random() * (segHi - segLo);
+      segs.push({
+        start: pos, end: pos + segLen,
+        lanes: curLanes, leftEdge, rightEdge,
+        changeSide: side,
+      });
+      pos += segLen;
     }
     return segs;
   }
@@ -59,122 +117,175 @@ RR.Road = (function () {
     const road = {
       schedule: buildSchedule(mapType, totalDistance),
       transitionLen,
-      // current logical lane count (post-boundary value of the segment we're in)
-      lanes: 3,
-      prevLanes: 3,
-      // active lanes for spawning / targeting (== min(prev,cur) in transition)
-      activeLanes: 3,
-      // float lane count for visual width interpolation
-      visualLanes: 3,
-      // 0 outside transition; 0..1 (peaks at 0.5 mid-zone) inside
-      transitionT: 0,
-      transitionDir: 0,            // -1 closing, +1 opening
+      // Live values populated by update() at the player's worldY.
+      lanes: 3, activeLanes: 3,
       leftEdge: 0, rightEdge: 0, width: 0,
+      transitionT: 0, transitionAlpha: 0,
+      changeSide: null,
+      specialStripeX: null,
+      worldOffset: 0,
     };
     update(road, 0);
     return road;
   }
 
-  // Road geometry at any worldY position. Used both by `update` (player's
-  // current worldY → live state for clamping/spawning) and by `draw`
-  // (per-screen-row geometry, so a transition is visible in the distance
-  // and scrolls down with the player's speed).
+  // ---- Geometry at a worldY ----
+
+  // Returns the geometric state of the road at any worldY:
+  //   leftEdge / rightEdge — actual edges (lerped through transition)
+  //   lanes / prevLanes    — segment counts on each side of the active boundary
+  //   activeLanes          — min(prev, next); the surviving lanes
+  //   transitionAlpha      — 0..1 raw progress through the zone (0.5 at boundary)
+  //   transitionT          — peaked 0..1..0
+  //   changeSide           — 'left' | 'right' | null inside transition
+  //   isOpening / isClosing- whether activeLanes is gaining / losing
+  //   specialStripeX       — X of the closing/opening lane's boundary
+  //                          stripe (the warning marker), or null
+  //
+  // The transition zone for a boundary spans transHalf on EACH side of it,
+  // so a row near the end of segment N is just as much "in transition" as
+  // a row near the start of segment N+1. We detect both halves explicitly.
   function geometryAt(road, wy) {
     const sched = road.schedule;
+    const transHalf = road.transitionLen / 2;
+
+    // Find the segment containing wy (here.end > wy, smallest such).
     let segIdx = sched.length - 1;
     for (let i = 0; i < sched.length; i++) {
       if (wy < sched[i].end) { segIdx = i; break; }
     }
-    const seg = sched[segIdx];
-    const prevSeg = segIdx > 0 ? sched[segIdx - 1] : seg;
-    const transHalf = road.transitionLen / 2;
-    const distFromBoundary = wy - seg.start;
-    const inTransition =
-      segIdx > 0 &&
-      distFromBoundary >= -transHalf &&
-      distFromBoundary < transHalf &&
-      seg.lanes !== prevSeg.lanes;
+    const here = sched[segIdx];
 
-    let visualLanes = seg.lanes;
-    let activeLanes = seg.lanes;
+    // Decide which boundary's transition (if any) this row falls in:
+    //   - latter half of (segIdx-1 → here): wy < here.start + transHalf
+    //   - earlier half of (here → segIdx+1): wy >= here.end - transHalf
+    // Segments are >> transitionLen long, so both halves can't be true at once.
+    let prevSeg = here, nextSeg = here, distFromBoundary = 0;
+    let withinZone = false;
+    if (segIdx > 0 && wy < here.start + transHalf) {
+      prevSeg = sched[segIdx - 1];
+      nextSeg = here;
+      distFromBoundary = wy - here.start;
+      withinZone = true;
+    } else if (segIdx + 1 < sched.length && wy >= here.end - transHalf) {
+      prevSeg = here;
+      nextSeg = sched[segIdx + 1];
+      distFromBoundary = wy - here.end;   // negative through the earlier half
+      withinZone = true;
+    }
+    const inTransition = withinZone && prevSeg.lanes !== nextSeg.lanes;
+
+    let leftEdge   = here.leftEdge;
+    let rightEdge  = here.rightEdge;
+    let activeLanes = here.lanes;
     let transitionT = 0;
     let transitionAlpha = 0;
-    let transitionDir = 0;
+    let changeSide = null;
+    let isOpening = false, isClosing = false;
+    let specialStripeX = null;
+
     if (inTransition) {
       const t = (distFromBoundary + transHalf) / road.transitionLen;
-      visualLanes = prevSeg.lanes + (seg.lanes - prevSeg.lanes) * t;
-      activeLanes = Math.min(prevSeg.lanes, seg.lanes);
-      transitionT = 1 - 2 * Math.abs(t - 0.5);
+      const eased = smoothstep(t);
       transitionAlpha = t;
-      transitionDir = seg.lanes > prevSeg.lanes ? 1 : -1;
+      transitionT = 1 - 2 * Math.abs(t - 0.5);
+      changeSide = nextSeg.changeSide;
+      isOpening  = nextSeg.lanes > prevSeg.lanes;
+      isClosing  = nextSeg.lanes < prevSeg.lanes;
+      activeLanes = Math.min(prevSeg.lanes, nextSeg.lanes);
+
+      if (changeSide === 'left') {
+        leftEdge  = prevSeg.leftEdge + (nextSeg.leftEdge - prevSeg.leftEdge) * eased;
+        rightEdge = nextSeg.rightEdge; // unchanged through the zone
+        // Warning stripe at the inner edge of the changing zone.
+        // Closing: the cur (smaller) road's leftEdge — the wall is moving in
+        //   to absorb this stripe. Opening: the prev (smaller) leftEdge —
+        //   the wall is peeling off this stripe.
+        specialStripeX = isClosing ? nextSeg.leftEdge : prevSeg.leftEdge;
+      } else if (changeSide === 'right') {
+        leftEdge  = nextSeg.leftEdge;
+        rightEdge = prevSeg.rightEdge + (nextSeg.rightEdge - prevSeg.rightEdge) * eased;
+        specialStripeX = isClosing ? nextSeg.rightEdge : prevSeg.rightEdge;
+      }
     }
-    return { lanes: seg.lanes, prevLanes: prevSeg.lanes, visualLanes, activeLanes, transitionT, transitionAlpha, transitionDir };
+
+    return {
+      leftEdge, rightEdge,
+      lanes: nextSeg.lanes, prevLanes: prevSeg.lanes,
+      activeLanes,
+      transitionT, transitionAlpha,
+      changeSide, isOpening, isClosing,
+      specialStripeX,
+    };
   }
 
-  // Widest the road ever gets across the whole shift — used by map deco
-  // placement so set pieces never end up under a wider future segment.
+  // ---- Public helpers ----
+
   function maxWidth(road) {
     let m = 0;
     for (const seg of road.schedule) {
-      if (seg.lanes * LANE_W > m) m = seg.lanes * LANE_W;
+      const w = seg.rightEdge - seg.leftEdge;
+      if (w > m) m = w;
     }
     return m;
+  }
+
+  // Worst-case absolute extents — the leftmost left edge and rightmost right
+  // edge across the whole schedule. Used by map deco placement to keep set
+  // pieces clear of every segment, including drifted ones.
+  function extents(road) {
+    let minLeft = Infinity, maxRight = -Infinity;
+    for (const seg of road.schedule) {
+      if (seg.leftEdge  < minLeft)  minLeft  = seg.leftEdge;
+      if (seg.rightEdge > maxRight) maxRight = seg.rightEdge;
+    }
+    return { minLeft, maxRight };
   }
 
   function update(road, worldOffset) {
     road.worldOffset = worldOffset;
     const g = geometryAt(road, worldOffset);
     road.lanes = g.lanes;
-    road.prevLanes = g.prevLanes;
     road.activeLanes = g.activeLanes;
-    road.visualLanes = g.visualLanes;
+    road.leftEdge = g.leftEdge;
+    road.rightEdge = g.rightEdge;
+    road.width = g.rightEdge - g.leftEdge;
     road.transitionT = g.transitionT;
-    road.transitionDir = g.transitionDir;
-
-    const center = C.INTERNAL_WIDTH / 2;
-    const w = g.visualLanes * LANE_W;
-    road.leftEdge = center - w / 2;
-    road.rightEdge = center + w / 2;
-    road.width = w;
+    road.transitionAlpha = g.transitionAlpha;
+    road.changeSide = g.changeSide;
+    road.specialStripeX = g.specialStripeX;
   }
 
   function bounds(road) {
     return { x: road.leftEdge, width: road.width, lanes: road.activeLanes };
   }
 
-  function laneCenters(road) {
-    const center = C.INTERNAL_WIDTH / 2;
-    const w = road.activeLanes * LANE_W;
-    const left = center - w / 2;
-    const out = [];
-    for (let i = 0; i < road.activeLanes; i++) {
-      out.push(left + LANE_W * (i + 0.5));
-    }
-    return out;
-  }
-
-  // Active-lane centers at any worldY — used by traffic so each NPC can be
-  // re-pinned + clamped against the road geometry at its own screen row,
-  // not the player's. This keeps NPCs on-road during lane transitions.
+  // Active (surviving) lane centers. Anchored to the FIXED side so the
+  // surviving lanes' X positions don't shift during a transition.
   function laneCentersAt(road, wy) {
     const g = geometryAt(road, wy);
-    const center = C.INTERNAL_WIDTH / 2;
-    const w = g.activeLanes * LANE_W;
-    const left = center - w / 2;
     const out = [];
-    for (let i = 0; i < g.activeLanes; i++) {
-      out.push(left + LANE_W * (i + 0.5));
+    if (g.changeSide === 'left') {
+      // Right side fixed; count lanes from the right.
+      for (let i = 0; i < g.activeLanes; i++) {
+        out.push(g.rightEdge - LANE_W * (g.activeLanes - i - 0.5));
+      }
+    } else {
+      // Right-side change OR no transition: anchor at left edge.
+      for (let i = 0; i < g.activeLanes; i++) {
+        out.push(g.leftEdge + LANE_W * (i + 0.5));
+      }
     }
     return out;
   }
 
-  // Visual road edges at any worldY (the white lines you see). Asphalt is
-  // exactly between these. Used for clamping NPC.x.
+  function laneCenters(road) {
+    return laneCentersAt(road, road.worldOffset);
+  }
+
   function edgesAt(road, wy) {
     const g = geometryAt(road, wy);
-    const center = C.INTERNAL_WIDTH / 2;
-    const w = g.visualLanes * LANE_W;
-    return { left: center - w / 2, right: center + w / 2 };
+    return { left: g.leftEdge, right: g.rightEdge };
   }
 
   function nearestLane(road, x) {
@@ -189,36 +300,29 @@ RR.Road = (function () {
 
   function laneWidth() { return LANE_W; }
 
-  // Per-row rendering: each screen y maps to its own worldY, so a transition
-  // appears in the distance and scrolls down toward the player at the same
-  // speed as the rest of the road. The mapping is
-  //   worldY(screenY) = worldOffset + (CAR.screenY - screenY)
-  // (road shifts upward visually as worldOffset grows; row at the car's
-  // screenY is the player's current worldOffset).
+  // ---- Drawing ----
+
   function draw(ctx, road, worldOffset) {
     const H = C.INTERNAL_HEIGHT;
-    const W = C.INTERNAL_WIDTH;
-    const center = W / 2;
     const sH = C.ROAD.stripeH;
     const dash = sH + C.ROAD.stripeGap;
     const carScreenY = C.CAR.screenY;
 
-    // Cache per-row geometry once. Cheap (linear scan over a small schedule).
+    // Cache per-row geometry once.
     const rows = new Array(H);
     for (let y = 0; y < H; y++) {
       const wy = worldOffset + (carScreenY - y);
       rows[y] = { wy, g: geometryAt(road, wy) };
     }
 
-    // Pre-round per-row width so asphalt and edge lines snap to the same
-    // integer columns — otherwise the white edges and the dark surface drift
-    // by a pixel relative to each other during a transition.
+    // Pre-round edges per row so asphalt + edge lines snap to the same cols.
+    const lefts = new Array(H);
     const widths = new Array(H);
-    const lefts  = new Array(H);
     for (let y = 0; y < H; y++) {
-      const visW = Math.round(rows[y].g.visualLanes * LANE_W);
-      widths[y] = visW;
-      lefts[y]  = Math.round(center - visW / 2);
+      const left  = Math.round(rows[y].g.leftEdge);
+      const right = Math.round(rows[y].g.rightEdge);
+      lefts[y]  = left;
+      widths[y] = right - left;
     }
 
     // Asphalt
@@ -227,8 +331,7 @@ RR.Road = (function () {
       ctx.fillRect(lefts[y], y, widths[y], 1);
     }
 
-    // Outer edge lines (2 px wide, full height — drawn per row to track curve
-    // of the changing width).
+    // Outer edge lines (white, 2 px wide)
     ctx.fillStyle = '#e8e8e8';
     for (let y = 0; y < H; y++) {
       const left = lefts[y];
@@ -237,58 +340,50 @@ RR.Road = (function () {
       ctx.fillRect(right - 2, y, 2, 1);
     }
 
-    // Dashed lane stripes. Outside the transition zone we use the segment's
-    // lane count directly. Inside the zone we crossfade between the prev and
-    // cur layouts (prev fading out, cur fading in) so the stripe pattern
-    // morphs smoothly across the boundary instead of snapping.
-    function paintStripes(yRow, lanes, fill) {
-      if (lanes < 2) return;
-      ctx.fillStyle = fill;
-      const w = lanes * LANE_W;
-      const left = center - w / 2;
-      for (let l = 1; l < lanes; l++) {
-        const sx = (left + LANE_W * l - 1) | 0;
-        ctx.fillRect(sx, yRow, 2, 1);
-      }
-    }
+    // Lane stripes between active (surviving) lanes — straight dashed yellow.
+    ctx.fillStyle = '#e8c020';
     for (let y = 0; y < H; y++) {
       const wy = rows[y].wy;
       const phase = ((wy % dash) + dash) % dash;
       if (phase >= sH) continue;
       const g = rows[y].g;
-      const inTrans = g.transitionAlpha > 0 && g.lanes !== g.prevLanes;
-      if (!inTrans) {
-        paintStripes(y, g.lanes, '#e8c020');
+      if (g.activeLanes < 2) continue;
+
+      // Surviving section anchor: same logic as laneCentersAt — left edge
+      // when the right side is changing (or no change), right-anchored
+      // when the left side is changing.
+      let anchorX, dir;
+      if (g.changeSide === 'left') {
+        anchorX = Math.round(g.rightEdge);
+        dir = -1;
       } else {
-        const t = g.transitionAlpha;
-        paintStripes(y, g.prevLanes, 'rgba(232,192,32,' + (1 - t).toFixed(3) + ')');
-        paintStripes(y, g.lanes,     'rgba(232,192,32,' + t.toFixed(3) + ')');
+        anchorX = Math.round(g.leftEdge);
+        dir = 1;
+      }
+      for (let l = 1; l < g.activeLanes; l++) {
+        const sx = anchorX + dir * LANE_W * l - 1;
+        ctx.fillRect(sx, y, 2, 1);
       }
     }
 
-    // Ghost-lane indicators: orange dots centered in the appearing / closing
-    // strip on each side, only inside a transition zone.
-    ctx.fillStyle = '#e8a040';
+    // Warning stripe at the closing/opening lane boundary — small dots so
+    // it reads as "this lane is on its way in or out". Only inside the
+    // transition zone.
+    ctx.fillStyle = '#ffd040';
     for (let y = 0; y < H; y++) {
       const g = rows[y].g;
-      if (g.transitionT <= 0) continue;
-      const visW = widths[y];
-      const actW = g.activeLanes * LANE_W;
-      if (Math.abs(visW - actW) <= 1) continue;
-      const phase = ((rows[y].wy % dash) + dash) % dash;
-      if (phase >= 4) continue;
-      const leftEdge = lefts[y];
-      const rightEdge = leftEdge + visW;
-      const ghostHalf = (visW - actW) / 2;
-      const lcx = (leftEdge + ghostHalf / 2) | 0;
-      const rcx = (rightEdge - ghostHalf / 2) | 0;
-      ctx.fillRect(lcx - 1, y, 2, 1);
-      ctx.fillRect(rcx - 1, y, 2, 1);
+      if (g.specialStripeX === null) continue;
+      // Dotted: 1 px on every 3 px of worldY.
+      const wy = rows[y].wy;
+      const dotPhase = ((wy % 3) + 3) % 3;
+      if (dotPhase >= 1) continue;
+      const sx = Math.round(g.specialStripeX) - 1;
+      ctx.fillRect(sx, y, 2, 1);
     }
   }
 
   return {
     create, update, bounds, laneCenters, laneCentersAt, edgesAt,
-    nearestLane, laneWidth, maxWidth, draw,
+    nearestLane, laneWidth, maxWidth, extents, draw,
   };
 })();

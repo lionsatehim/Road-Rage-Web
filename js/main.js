@@ -444,7 +444,8 @@
         const d = Math.abs(centers[i] - car.x);
         if (d < bestD) { bestD = d; curLane = i; }
       }
-      if (state.prevLaneIdx >= 0 && curLane !== state.prevLaneIdx &&
+      if (state.prevLaneIdx >= 0 && state.prevLaneIdx < centers.length &&
+          curLane !== state.prevLaneIdx &&
           Math.abs(car.lateralVel) > styleCfg.narrowMergeMinLatVel) {
         // Check if both adjacent-lane NPCs are flanking us in the y window.
         const yWin = styleCfg.narrowMergeWindowDy;
