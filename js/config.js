@@ -349,4 +349,46 @@ RR.Config = {
       city:   { interval: [1.4, 2.6], roster: { pothole: 2, oil: 4, cones: 4, stoppedCar: 1 } },
     },
   },
+
+  // ---- Style points ----
+  // Parallel scoring system rewarding flashy / risky play. Independent of
+  // pay & promotions. Each event awards a fixed value (or a Fibonacci-6
+  // streak value for chained passes / RR hits). Shown as small floaters
+  // near the player and accumulated into a per-shift + lifetime total.
+  STYLE: {
+    // Streak schedule (capped at index 5). Index resets on streak break.
+    streakFib: [100, 200, 300, 500, 800, 1300],
+    rageStreakFib: [200, 400, 600, 1000, 1600, 2600],
+
+    // Flat values
+    powerup: 250,
+    nearMiss: 300,
+    narrowMerge: 400,
+    fastDodge: 200,
+    hazardHop: 250,
+    clearance: 500,
+    airtimeBase: 300,        // first jump
+    airtimeIncrement: 200,   // additional per jump after the first
+    offRoadPerSec: 40,       // scaled by speed/maxSpeed; only when moving
+    offRoadMinSpeedFrac: 0.3,// no points for crawling along the shoulder
+
+    // Shift-complete bonus: base * (levelIdx + 1) plus modest extras.
+    shiftComplete: 1000,
+    shiftCompleteOnTime: 500,
+    shiftCompleteNoRage: 500,
+
+    // Detection thresholds
+    nearMissDy: 28,          // NPC ahead within this y is in "near-miss" range
+    nearMissCooldown: 1.2,   // seconds; one near-miss credit per encounter
+    narrowMergeWindowDy: 30, // y window around player for flanking NPC check
+    narrowMergeMinLatVel: 30,// |lateralVel| above this counts as merging
+    narrowMergeCooldown: 0.6,
+    fastDodgeDx: 18,         // hazard within this dx as it crosses the player
+    fastDodgeMinLatVel: 30,
+
+    // Floater visual
+    floaterLife: 0.9,        // seconds total
+    floaterRise: 18,         // px rise over life
+    floaterSpacing: 10,      // min vertical gap between stacked floaters
+  },
 };

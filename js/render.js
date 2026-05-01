@@ -505,7 +505,10 @@ RR.Render = (function () {
       ctx.fillText('Continue', 44, y + 6);
       ctx.font = '8px "Courier New", monospace';
       ctx.fillStyle = '#9aa';
-      ctx.fillText(tcfg.name + ' — ' + lvl.title + ' ($' + career.lifetimeEarnings + ')',
+      const styleStr = career.lifetimeStyle
+        ? '  ★ ' + RR.Style.formatNum(career.lifetimeStyle)
+        : '';
+      ctx.fillText(tcfg.name + ' — ' + lvl.title + ' ($' + career.lifetimeEarnings + ')' + styleStr,
                    44, y + 16);
       listStartY = 60;
     }
@@ -619,6 +622,10 @@ RR.Render = (function () {
     row('PAY', '$' + r.pay, r.pay > 0 ? '#9eea9e' : '#888');
     y += 2;
     row('Lifetime',   '$' + career.lifetimeEarnings, '#ffe060');
+    if (r.styleShift !== undefined) {
+      row('Style',  RR.Style.formatNum(r.styleShift), '#ffe060');
+    }
+    row('Lifetime Style', RR.Style.formatNum(career.lifetimeStyle || 0), '#ffd040');
 
     // Promo / demo ribbon.
     if (r.promoted) {
@@ -714,8 +721,11 @@ RR.Render = (function () {
     ctx.fillText('You were fired.', W / 2, H / 2 - 10);
     ctx.fillStyle = '#ffe060';
     ctx.fillText('Lifetime earnings: $' + career.lifetimeEarnings, W / 2, H / 2 + 6);
+    ctx.fillStyle = '#ffd040';
+    ctx.fillText('Lifetime style: ' + RR.Style.formatNum(career.lifetimeStyle || 0),
+                 W / 2, H / 2 + 16);
     ctx.fillStyle = '#aaa';
-    ctx.fillText('Press R or Enter to start over', W / 2, H / 2 + 26);
+    ctx.fillText('Press R or Enter to start over', W / 2, H / 2 + 32);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
   }
@@ -735,9 +745,12 @@ RR.Render = (function () {
     ctx.fillText('You hit the magic number.', W / 2, H / 2 - 4);
     ctx.fillStyle = '#9eea9e';
     ctx.fillText('Lifetime earnings: $' + career.lifetimeEarnings, W / 2, H / 2 + 14);
+    ctx.fillStyle = '#ffd040';
+    ctx.fillText('Lifetime style: ' + RR.Style.formatNum(career.lifetimeStyle || 0),
+                 W / 2, H / 2 + 24);
     ctx.fillStyle = '#aaa';
-    ctx.fillText('Shifts worked: ' + career.shiftsWorked, W / 2, H / 2 + 24);
-    ctx.fillText('Press R or Enter for a new life', W / 2, H / 2 + 40);
+    ctx.fillText('Shifts worked: ' + career.shiftsWorked, W / 2, H / 2 + 34);
+    ctx.fillText('Press R or Enter for a new life', W / 2, H / 2 + 48);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
   }

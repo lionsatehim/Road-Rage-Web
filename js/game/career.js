@@ -25,6 +25,7 @@ RR.Career = (function () {
       lateStreak: 0,
       rageStreak: 0,
       lifetimeEarnings: 0,
+      lifetimeStyle: 0,
       damage: 0,
       shiftsWorked: 0,
       // The most recent end-of-shift result (for the summary screen).
@@ -56,6 +57,7 @@ RR.Career = (function () {
         lateStreak: s.lateStreak,
         rageStreak: s.rageStreak,
         lifetimeEarnings: s.lifetimeEarnings,
+        lifetimeStyle: s.lifetimeStyle || 0,
         damage: s.damage,
         shiftsWorked: s.shiftsWorked,
       };
@@ -93,6 +95,7 @@ RR.Career = (function () {
     s.lateStreak = 0;
     s.rageStreak = 0;
     s.lifetimeEarnings = 0;
+    s.lifetimeStyle = 0;
     s.damage = 0;
     s.shiftsWorked = 0;
     assignCity(s);

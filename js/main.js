@@ -33,6 +33,7 @@
     traffic: RR.Traffic.create(),
     rage: RR.Rage.create(),
     powerups: RR.Powerups.create(),
+    style: RR.Style.create(career.lifetimeStyle || 0),
     career,
     time: 0,
     shockTimer: 0,
@@ -41,6 +42,14 @@
     tireBurst: 0,
     prevSpeed: 0,
     prevOffRoad: false,
+    // Style detection bookkeeping.
+    nearMissCandidate: null,    // { npc, dy, t } when player brakes near an NPC ahead
+    hazardSeen: new Map(),      // hazard ref → { minDx, latVelAtMin, lastY }
+    npcWasAhead: new Map(),     // npc ref → boolean (last frame's "ahead of player")
+    activeJumpClearances: new Set(), // npcs already credited this jump
+    activeJumpHops: new Set(),       // hazard refs already credited this jump
+    lastJumpHeight: 0,
+    prevLaneIdx: -1,
   };
 
 
@@ -102,6 +111,8 @@
     state.traffic = RR.Traffic.create();
     state.rage = RR.Rage.create();
     state.powerups = RR.Powerups.create();
+    RR.Style.resetShift(state.style);
+    state.style.lifetime = state.career.lifetimeStyle || 0;
     state.tireMarks = [];
     state.tireBurst = 0;
     state.prevSpeed = 0;
@@ -109,6 +120,13 @@
     state.shockTimer = 0;
     state.banner.timer = 0;
     state.paused = false;
+    state.nearMissCandidate = null;
+    state.hazardSeen.clear();
+    state.npcWasAhead.clear();
+    state.activeJumpClearances.clear();
+    state.activeJumpHops.clear();
+    state.lastJumpHeight = 0;
+    state.prevLaneIdx = -1;
     const mapType = RR.Career.currentMapType(state.career);
     state.road = RR.Road.create(mapType, RR.Config.CAREERS.shiftDistance);
     state.map = RR.Map.create(mapType);
@@ -169,6 +187,8 @@
     if (hit) {
       RR.Career.addDamage(state.career, hit.kind, dmgMult);
       RR.Rage.onHit(state.rage, hit.kind, coffeeMult);
+      if (hit.kind === 'ram') RR.Style.onRageHit(state.style, state.car);
+      else                    RR.Style.onCrash(state.style);
     }
     if (hazardHit) {
       const hcfg = hazardHit.cfg;
@@ -186,9 +206,16 @@
       state.shockTimer = Math.max(state.shockTimer, hcfg.shock);
       RR.Audio.sfx(hcfg.stun ? 'crash' : 'tap');
       triggerBanner(hcfg.banner);
+      // Solid hits (cones, potholes, stopped cars) break the pass streak.
+      // A slick (puddle/oil) is a wobble — let the streak survive.
+      if (hcfg.damage > 0) RR.Style.onCrash(state.style);
     }
     RR.Rage.update(state.rage, dt, state.car, state.traffic, input, coffeeMult);
     RR.Powerups.update(state.powerups, dt, state.car, state.rage, state.road);
+
+    // Style detections — read from the freshly-updated systems.
+    tickStyleDetections(dt, input);
+    RR.Style.update(state.style, dt);
 
     // Power-up rage effects.
     if (state.powerups.justActivated === 'coffee') {
@@ -219,6 +246,21 @@
       state.traffic.npcs = state.traffic.npcs.filter(n => n.y > state.car.y);
       state.shockTimer = 1.0;
     }
+
+    // Style: power-up activated → flat award + special airtime award for jumps.
+    if (state.powerups.justActivated) {
+      RR.Style.onPowerup(state.style, state.powerups.justActivated, state.car);
+      if (state.powerups.justActivated === 'jump') {
+        RR.Style.onJump(state.style, state.car);
+        state.activeJumpClearances.clear();
+        state.activeJumpHops.clear();
+      }
+    }
+    // Pass / passed-by streaks driven off rage's per-frame counters.
+    if (state.rage.justPassedCount > 0) {
+      RR.Style.onPass(state.style, state.rage.justPassedCount, state.car);
+    }
+    if (state.rage.justExitedRR) RR.Style.onRageExit(state.style);
     if (state.shockTimer > 0) state.shockTimer = Math.max(0, state.shockTimer - dt);
     if (state.banner.timer > 0) state.banner.timer = Math.max(0, state.banner.timer - dt);
 
@@ -241,11 +283,23 @@
 
     // ---- Shift completion ----
     if (state.career.shift && state.career.shift.finished) {
+      const levelIdxBefore = state.career.levelIdx;
       const result = RR.Career.finishShift(
         state.career,
         state.rage.level,
         RR.Rage.isRoadRage(state.rage),
       );
+      // Style: shift-complete bonus, plus persist running lifetime back to
+      // the career save. lifetime is the source of truth on this side.
+      const shiftBonus = RR.Style.onShiftComplete(
+        state.style, levelIdxBefore, result.late, result.raging, state.car,
+      );
+      result.styleShift = state.style.total;
+      result.styleBonus = shiftBonus;
+      state.career.lifetimeStyle = state.style.lifetime;
+      // Re-save so the new lifetimeStyle persists. Skip if the career was
+      // just wiped (game over / retire), so we don't resurrect the save.
+      if (!result.gameOver && !result.retired) RR.Career.save(state.career);
       if (result.retired)        state.scene = 'retired';
       else if (result.gameOver)  state.scene = 'game_over';
       else                       state.scene = 'shift_end';
@@ -334,6 +388,152 @@
     state.prevOffRoad = offRoad;
   }
 
+  // Style point detections that need per-frame state tracking. Pass-streak
+  // and rage-streak events are handled inline in tickDrive (they piggy-back
+  // on signals already produced elsewhere). This handles the trickier ones:
+  //   - getting passed (resets pass streak)
+  //   - near-miss (brake near a close NPC ahead)
+  //   - narrow merge (lateral move with NPCs flanking in adjacent lanes)
+  //   - fast dodge (hazard slips by while you swerved)
+  //   - hazard hop / clearance (jump over things)
+  //   - off-road shoulder time
+  function tickStyleDetections(dt, input) {
+    const car = state.car;
+    if (car.stunnedTimer > 0) return;
+    const styleCfg = RR.Config.STYLE;
+
+    // ---- Player-passed-by-NPC: y-cross from behind to ahead ----
+    const seenNpcs = new Set();
+    for (const npc of state.traffic.npcs) {
+      if (npc.crashed) continue;
+      seenNpcs.add(npc);
+      const isAhead = npc.y < car.y;
+      const wasAhead = state.npcWasAhead.get(npc);
+      if (wasAhead === false && isAhead) {
+        // NPC crossed from behind to ahead → they passed us.
+        if (Math.abs(npc.x - car.x) < RR.Config.RAGE.sidePassDx &&
+            npc.speed > car.speed) {
+          RR.Style.onPassedBy(state.style);
+        }
+      }
+      state.npcWasAhead.set(npc, isAhead);
+    }
+    // Clean up tracker entries for NPCs that no longer exist.
+    for (const k of state.npcWasAhead.keys()) {
+      if (!seenNpcs.has(k)) state.npcWasAhead.delete(k);
+    }
+
+    // ---- Near-miss: brake held while an NPC is close ahead in same lane ----
+    let closestAhead = null;
+    let closestDy = Infinity;
+    for (const npc of state.traffic.npcs) {
+      if (npc.crashed) continue;
+      if (Math.abs(npc.x - car.x) >= 12) continue;
+      const dy = car.y - npc.y;
+      if (dy > 0 && dy < closestDy) { closestDy = dy; closestAhead = npc; }
+    }
+    if (input.brake && closestAhead && closestDy < styleCfg.nearMissDy) {
+      RR.Style.onNearMiss(state.style, car);
+    }
+
+    // ---- Narrow merge: changing lanes with NPCs flanking ----
+    if (state.road) {
+      const centers = RR.Road.laneCenters(state.road);
+      let curLane = 0, bestD = Infinity;
+      for (let i = 0; i < centers.length; i++) {
+        const d = Math.abs(centers[i] - car.x);
+        if (d < bestD) { bestD = d; curLane = i; }
+      }
+      if (state.prevLaneIdx >= 0 && curLane !== state.prevLaneIdx &&
+          Math.abs(car.lateralVel) > styleCfg.narrowMergeMinLatVel) {
+        // Check if both adjacent-lane NPCs are flanking us in the y window.
+        const yWin = styleCfg.narrowMergeWindowDy;
+        const prevCenter = centers[state.prevLaneIdx];
+        const newCenter  = centers[curLane];
+        let leftBlocked = false, rightBlocked = false;
+        for (const npc of state.traffic.npcs) {
+          if (npc.crashed) continue;
+          if (Math.abs(npc.y - car.y) > yWin) continue;
+          if (Math.abs(npc.x - prevCenter) < 12) leftBlocked = true;
+          if (Math.abs(npc.x - newCenter)  < 12) rightBlocked = true;
+        }
+        if (leftBlocked && rightBlocked) {
+          RR.Style.onNarrowMerge(state.style, car);
+        }
+      }
+      state.prevLaneIdx = curLane;
+    }
+
+    // ---- Hazards: track each one's approach. Award on cross-and-pass. ----
+    if (state.hazards) {
+      const seenHaz = new Set();
+      const jumping = state.lastJumpHeight > 0;
+      for (const haz of state.hazards.hazards) {
+        seenHaz.add(haz);
+        const dx = Math.abs(haz.x - car.x);
+        let bookkeeping = state.hazardSeen.get(haz);
+        if (!bookkeeping) {
+          bookkeeping = { minDx: dx, latVelAtMin: car.lateralVel, lastY: haz.y };
+          state.hazardSeen.set(haz, bookkeeping);
+        } else if (dx < bookkeeping.minDx) {
+          bookkeeping.minDx = dx;
+          bookkeeping.latVelAtMin = car.lateralVel;
+        }
+        // Hop credit: while jumping, the hazard's center crosses the player.
+        if (jumping && bookkeeping.lastY < car.y && haz.y >= car.y &&
+            dx < (RR.Config.HAZARDS.types[haz.type].width / 2 + RR.Config.CAR.width / 2) &&
+            !state.activeJumpHops.has(haz)) {
+          state.activeJumpHops.add(haz);
+          RR.Style.onHazardHop(state.style, car);
+        }
+        // Fast dodge: hazard despawns having come close while we swerved,
+        // and we're not jumping (jump is its own reward path).
+        bookkeeping.lastY = haz.y;
+      }
+      // Detect fast-dodge as hazards leave the array. Require the hazard
+      // to have last been seen well past the player — otherwise the
+      // disappearance is from a collision (which removes it mid-screen).
+      for (const haz of state.hazardSeen.keys()) {
+        if (seenHaz.has(haz)) continue;
+        const bk = state.hazardSeen.get(haz);
+        state.hazardSeen.delete(haz);
+        state.activeJumpHops.delete(haz);
+        if (jumping) continue;
+        const passedClean = bk.lastY > car.y + 6;
+        if (passedClean &&
+            bk.minDx <= styleCfg.fastDodgeDx &&
+            Math.abs(bk.latVelAtMin) > styleCfg.fastDodgeMinLatVel) {
+          RR.Style.onFastDodge(state.style, car);
+        }
+      }
+    }
+
+    // ---- Clearance: NPCs whose y crosses player.y while jumping. ----
+    const jumpH = RR.Powerups.jumpHeight(state.powerups);
+    if (jumpH > 0) {
+      for (const npc of state.traffic.npcs) {
+        if (npc.crashed) continue;
+        const wasAhead = state.npcWasAhead.get(npc);
+        const isAhead  = npc.y < car.y;
+        if (wasAhead === true && !isAhead && Math.abs(npc.x - car.x) < 14 &&
+            !state.activeJumpClearances.has(npc)) {
+          state.activeJumpClearances.add(npc);
+          RR.Style.onClearance(state.style, car);
+        }
+      }
+    } else {
+      // Reset clearance set the moment we land.
+      if (state.lastJumpHeight > 0) {
+        state.activeJumpClearances.clear();
+        state.activeJumpHops.clear();
+      }
+    }
+    state.lastJumpHeight = jumpH;
+
+    // ---- Off-road shoulder time. Reuse prevOffRoad (set in updateTireMarks). ----
+    if (state.prevOffRoad) RR.Style.onOffRoadTick(state.style, dt, car);
+  }
+
   function triggerBanner(type) {
     const cfg = RR.Config.BANNERS[type];
     if (!cfg || !cfg.texts || cfg.texts.length === 0) return;
@@ -384,7 +584,9 @@
     RR.Render.drawCoffeeVignette(ctx, state.powerups, state.time);
     RR.Render.drawRoadRageVignette(ctx, state.rage, state.time);
     RR.Render.drawShortcutFlash(ctx, state.shockTimer);
+    RR.Style.drawFloaters(ctx, state.style);
     RR.Render.drawHUD(ctx, state, state.time);
+    RR.Style.drawCounter(ctx, state.style);
     RR.Render.drawBanner(ctx, state.banner);
 
     if (state.scene === 'shift_end') {
