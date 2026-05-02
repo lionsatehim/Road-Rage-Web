@@ -99,13 +99,14 @@ RR.Traffic = (function () {
     for (const lx of centers) {
       if (!laneClearAt(traffic.npcs, lx, spawnY, C.TRAFFIC.minLaneSeparation)) continue;
 
-      let sprite;
-      if (archCfg.sportSprite && RR.Sprites.NPC_SPORT) {
-        sprite = RR.Sprites.NPC_SPORT;
-      } else {
-        const variants = RR.Sprites.NPC_VARIANTS;
-        sprite = variants[Math.floor(Math.random() * variants.length)];
-      }
+      // Vehicle class drives the sprite + tint pool. Sheet override (if
+      // loaded) takes precedence; otherwise we fall back to the procedural
+      // variant pool indexed by tintIdx.
+      const vehicleClass = archCfg.sportSprite ? 'sport' : 'sedan';
+      const tintCount = RR.Sprites.vehicleSheetExists(vehicleClass)
+        ? RR.Sprites.vehicleTintCount(vehicleClass)
+        : RR.Sprites.proceduralTintCount(vehicleClass);
+      const tintIdx = Math.floor(Math.random() * Math.max(1, tintCount));
       // Souped-up coupes merge sharper than ordinary lane-changers — short
       // approach time so a pass attempt commits decisively.
       const baseLaneRate = archCfg.sportSprite
@@ -122,7 +123,12 @@ RR.Traffic = (function () {
         // Per-NPC lateral approach rate for lane changes — randomized so
         // weavers/tailgaters don't all change lanes at the same brisk pace.
         laneChangeRate: baseLaneRate,
-        sprite: sprite,
+        vehicleClass,
+        tintIdx,
+        // Damage frame index into the loaded sheet. NPCs spawn pristine
+        // (frame 0) and flip to the wrecked frame on crash via
+        // resolveCollision. Sheets without a load do nothing with this.
+        damageFrame: 0,
         braking: false,
         // Blinker state: 0 = off, -1 = left, +1 = right. Driven by lane-change
         // intent, with an occasional random "they forgot to turn it off" tick.
@@ -406,6 +412,7 @@ RR.Traffic = (function () {
       // Ram: knock the NPC aside, light speed loss, no stun.
       const dir = (npc.x >= player.x ? 1 : -1);
       npc.crashed = true;
+      npc.damageFrame = RR.Sprites.wreckedFrame(npc.vehicleClass);
       npc.speed = 0;
       npc.x += dir * 14;
       npc.y += 4;
@@ -428,6 +435,7 @@ RR.Traffic = (function () {
 
     npc.speed = 0;
     npc.crashed = true;
+    npc.damageFrame = RR.Sprites.wreckedFrame(npc.vehicleClass);
 
     for (let i = traffic.npcs.length - 1; i >= 0; i--) {
       const o = traffic.npcs[i];
@@ -445,7 +453,8 @@ RR.Traffic = (function () {
     for (const npc of traffic.npcs) {
       const x = Math.round(npc.x - C.CAR.width  / 2);
       const y = Math.round(npc.y - C.CAR.height / 2);
-      ctx.drawImage(npc.sprite, x, y);
+      const sprite = RR.Sprites.getNpcSprite(npc.vehicleClass, npc.tintIdx, npc.damageFrame);
+      if (sprite) ctx.drawImage(sprite, x, y);
       if (!npc.crashed) {
         RR.Render.drawBrakeLights(ctx, x, y, npc.braking);
         if (npc.blinkerSide && blinkOn) {

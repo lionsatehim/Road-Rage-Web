@@ -471,5 +471,106 @@ RR.Sprites = (function () {
     tower: M_TOWER, streetlight: M_STREETLIGHT, billboard: M_BILLBOARD,
   };
 
-  return { makeSprite, draw, PLAYER, PLAYER_RAGING, PLAYER_RAGING_YELLOW, NPC_VARIANTS, NPC_SPORT, PICKUPS, MAP };
+  // -------------------------------------------------------------------------
+  // Vehicle sheet overrides
+  // -------------------------------------------------------------------------
+  // For each entry in Config.SPRITES.vehicles with a `url`, fetch the PNG,
+  // slice it into `frames` columns, and bake every (frame × tint) into an
+  // offscreen canvas using a `multiply` blend so a grayscale sheet can drive
+  // multiple color variants. Failed loads stay absent and callers fall back
+  // to the procedural sprite.
+  //
+  // Sheet shape: vehicleSheets[className] = {
+  //   frameCount,                      // int
+  //   tintCount,                       // int (>=1; 1 means no recolor)
+  //   frames: [ [canvasPerTint, ...], …]   // index by [frameIdx][tintIdx]
+  // }
+  const vehicleSheets = {};
+
+  function bakeFrame(img, frameIdx, fw, fh, tint) {
+    const c = document.createElement('canvas');
+    c.width = fw; c.height = fh;
+    const cx = c.getContext('2d');
+    cx.drawImage(img, frameIdx * fw, 0, fw, fh, 0, 0, fw, fh);
+    if (tint) {
+      // Multiply paints every pixel including originally-transparent ones,
+      // so we mask back with destination-in to restore the source alpha.
+      cx.globalCompositeOperation = 'multiply';
+      cx.fillStyle = tint;
+      cx.fillRect(0, 0, fw, fh);
+      cx.globalCompositeOperation = 'destination-in';
+      cx.drawImage(img, frameIdx * fw, 0, fw, fh, 0, 0, fw, fh);
+    }
+    return c;
+  }
+
+  function loadVehicleSheets() {
+    const cfg = (RR.Config.SPRITES && RR.Config.SPRITES.vehicles) || {};
+    for (const className in cfg) {
+      const v = cfg[className];
+      if (!v || !v.url) continue;
+      const img = new Image();
+      img.onload = () => {
+        const frameCount = v.frames || 4;
+        const fw = Math.floor(img.width / frameCount);
+        const fh = img.height;
+        const tints = (v.tints && v.tints.length) ? v.tints : [null];
+        const frames = [];
+        for (let f = 0; f < frameCount; f++) {
+          const perTint = [];
+          for (const tint of tints) {
+            perTint.push(bakeFrame(img, f, fw, fh, tint));
+          }
+          frames.push(perTint);
+        }
+        vehicleSheets[className] = { frameCount, tintCount: tints.length, frames };
+      };
+      img.onerror = () => { /* silent — fall back to procedural */ };
+      img.src = v.url;
+    }
+  }
+  loadVehicleSheets();
+
+  function vehicleSheetExists(className) {
+    return !!vehicleSheets[className];
+  }
+  function vehicleTintCount(className) {
+    const s = vehicleSheets[className];
+    return s ? s.tintCount : 0;
+  }
+  function vehicleFrameCount(className) {
+    const s = vehicleSheets[className];
+    return s ? s.frameCount : 0;
+  }
+  // Resolve an NPC's render canvas. Tries the loaded sheet first, falls
+  // back to the procedural sprite indexed by tintIdx.
+  function getNpcSprite(className, tintIdx, frameIdx) {
+    const sheet = vehicleSheets[className];
+    if (sheet) {
+      const f = Math.max(0, Math.min(frameIdx | 0, sheet.frameCount - 1));
+      const t = Math.max(0, (tintIdx | 0)) % sheet.tintCount;
+      return sheet.frames[f][t];
+    }
+    if (className === 'sport') return NPC_SPORT;
+    return NPC_VARIANTS[Math.max(0, (tintIdx | 0)) % NPC_VARIANTS.length];
+  }
+  // Procedural variant count for spawn-time tint selection when no sheet.
+  function proceduralTintCount(className) {
+    return className === 'sport' ? 1 : NPC_VARIANTS.length;
+  }
+  // What frame index represents "wrecked" — last frame of the sheet, or 0
+  // when running on procedural sprites (which have no damage states).
+  function wreckedFrame(className) {
+    const s = vehicleSheets[className];
+    return s ? s.frameCount - 1 : 0;
+  }
+
+  return {
+    makeSprite, draw,
+    PLAYER, PLAYER_RAGING, PLAYER_RAGING_YELLOW,
+    NPC_VARIANTS, NPC_SPORT, PICKUPS, MAP,
+    // Vehicle sheet API
+    vehicleSheetExists, vehicleTintCount, vehicleFrameCount,
+    getNpcSprite, proceduralTintCount, wreckedFrame,
+  };
 })();

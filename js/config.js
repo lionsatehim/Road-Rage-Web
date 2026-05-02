@@ -256,6 +256,35 @@ RR.Config = {
       // thunder: 'audio/thunder.wav',
     },
   },
+  // Sprite overrides (NPCs only for now). Each vehicle class can supply a
+  // PNG sprite sheet — a horizontal strip of `frames` images at 16x24 each.
+  //
+  // Damage progression: frame 0 = pristine, last frame = wrecked, with the
+  // intermediate frames mapped to player damage tiers (NPCs flip directly
+  // to the last frame when crashed). Thresholds are fractions of damageMax.
+  //
+  // Tint pipeline: at load time we bake one offscreen canvas per
+  // (frame × tint) using `multiply` blend, so a single grayscale sheet can
+  // produce N color variants. Pure-black pixels in the sheet (windows,
+  // wheels, brake lights, etc.) survive any tint untouched. If a sheet
+  // fails to load, the NPC falls back to the procedural sprite as today.
+  SPRITES: {
+    damageMax: 100,                       // "totaled" threshold (player, future)
+    damageThresholds: [0.34, 0.67, 1.0],  // tier transitions (player, future)
+    vehicles: {
+      sedan: {
+        url: 'sprites/sedan.png',
+        frames: 4,
+        tints: ['#3c6ec8', '#3ca050', '#f0c83c',
+                '#dc8232', '#9650b4', '#c8c8d2'],
+      },
+      sport: {
+        // url: 'sprites/sport.png',
+        frames: 4,
+        tints: ['#282832'],
+      },
+    },
+  },
   // ---- Map types ----
   // Backgrounds tied to a career level via `mapType`. Each entry defines the
   // off-road palette and the set-piece roster (sprite name -> weight) the map
