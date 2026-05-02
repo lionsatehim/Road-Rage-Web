@@ -209,6 +209,14 @@ RR.Audio = (function () {
         tone(60, 'sawtooth', 0.55, 0.18, { glide: 30 });
         tone(45, 'square',   0.65, 0.12, { glide: 22 });
         break;
+      case 'wrench':
+        // Two metallic clinks + a happy ascending arpeggio = "fixed it".
+        noiseBurst(0.04, 0.18, 4000, { at: t });
+        noiseBurst(0.04, 0.16, 4000, { at: t + 0.08 });
+        tone(523, 'square', 0.10, 0.08, { at: t + 0.18 });   // C5
+        tone(659, 'square', 0.10, 0.08, { at: t + 0.26 });   // E5
+        tone(784, 'square', 0.16, 0.09, { at: t + 0.34 });   // G5
+        break;
     }
   }
 
@@ -284,7 +292,69 @@ RR.Audio = (function () {
     filterLfo.start(t);
     volLfo.start(t);
 
-    lofi.nodes = { oscs, lp, g, filterLfo, volLfo };
+    lofi.nodes = { oscs, lp, g, filterLfo, volLfo, melodyNotes: [] };
+
+    // Eight-note melody loop riding on top of the pad. Pentatonic over the
+    // Cmaj9 pad — every note belongs, nothing clashes. Plays at ~96 BPM
+    // (250ms per eighth note, 2s full cycle).
+    const beat = 0.25;                                     // sec per note
+    const cycleLen = beat * 8;                             // 2s
+    const melody = [
+      659.25,  // E5
+      783.99,  // G5
+      987.77,  // B5
+      880.00,  // A5
+      783.99,  // G5
+      659.25,  // E5
+      587.33,  // D5
+      523.25,  // C5
+    ];
+
+    function scheduleMelodyCycle(start) {
+      for (let i = 0; i < melody.length; i++) {
+        const note = playLofiNote(melody[i], start + i * beat, beat * 0.9);
+        if (note) lofi.nodes.melodyNotes.push(note);
+      }
+      // Drop notes that have already finished so the list doesn't grow.
+      const now = ctx.currentTime;
+      lofi.nodes.melodyNotes = lofi.nodes.melodyNotes.filter(n => n.endAt > now);
+    }
+
+    let nextCycleAt = t + 0.6;   // wait for the pad fade-in to settle
+    scheduleMelodyCycle(nextCycleAt);
+
+    function pumpMelody() {
+      if (!lofi.active) return;
+      nextCycleAt += cycleLen;
+      scheduleMelodyCycle(nextCycleAt);
+      // Reschedule a bit before the next cycle should play so the audio
+      // graph never runs dry.
+      const leadMs = Math.max(80, (nextCycleAt - ctx.currentTime - 0.4) * 1000);
+      lofi.nodes.melodyTimeout = setTimeout(pumpMelody, leadMs);
+    }
+    lofi.nodes.melodyTimeout = setTimeout(pumpMelody, (cycleLen - 0.4) * 1000);
+  }
+
+  // One soft triangle blip with a quick attack/decay envelope and a low-pass
+  // for that lo-fi muffle. Only used by the synth fallback path. Returns a
+  // handle so stopLofi can silence in-flight notes when the powerup ends.
+  function playLofiNote(freq, at, dur) {
+    if (!ctx || muted) return null;
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1400;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.06, at + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(lp).connect(g).connect(master);
+    const endAt = at + dur + 0.02;
+    osc.start(at);
+    osc.stop(endAt);
+    return { osc, g, startAt: at, endAt };
   }
 
   function stopLofi() {
@@ -299,6 +369,21 @@ RR.Audio = (function () {
     }
     if (!lofi.nodes) return;
     const n = lofi.nodes;
+    if (n.melodyTimeout) { clearTimeout(n.melodyTimeout); n.melodyTimeout = null; }
+    // Cancel every queued melody note's envelope and stop its osc shortly
+    // after — otherwise notes already pre-scheduled into the next cycle
+    // keep playing for up to a full measure after the powerup expires.
+    if (n.melodyNotes && n.melodyNotes.length) {
+      for (const note of n.melodyNotes) {
+        try {
+          note.g.gain.cancelScheduledValues(t);
+          note.g.gain.setValueAtTime(note.g.gain.value, t);
+          note.g.gain.linearRampToValueAtTime(0.0001, t + 0.04);
+          note.osc.stop(t + 0.06);
+        } catch (e) { /* note may have already ended */ }
+      }
+      n.melodyNotes.length = 0;
+    }
     n.g.gain.cancelScheduledValues(t);
     n.g.gain.setTargetAtTime(0.0001, t, 0.15);
     const stopAt = t + 0.6;

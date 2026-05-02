@@ -235,11 +235,34 @@ RR.Sprites = (function () {
     '.': null,
   });
 
+  // Wrench — repair powerup. Orange tile, silver wrench shape.
+  const PU_WRENCH = makeSprite([
+    '..............',
+    '..wwwwwwwwww..',
+    '..w........w..',
+    '..w.A....A.w..',
+    '..w.AA..AA.w..',
+    '..w..AAAA..w..',
+    '..w...AA...w..',
+    '..w...AA...w..',
+    '..w...AA...w..',
+    '..w...AA...w..',
+    '..w...AA...w..',
+    '..w........w..',
+    '..wwwwwwwwww..',
+    '..............',
+  ], {
+    'w': [220, 110, 50],
+    'A': [220, 220, 230],
+    '.': null,
+  });
+
   const PICKUPS = {
     coffee:   PU_COFFEE,
     jump:     PU_JUMP,
     shortcut: PU_SHORTCUT,
     lofi:     PU_LOFI,
+    wrench:   PU_WRENCH,
   };
 
   // -------- Map decorations --------

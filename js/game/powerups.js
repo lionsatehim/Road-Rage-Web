@@ -34,6 +34,9 @@ RR.Powerups = (function () {
       justCollected: false,
       justActivated: null,
       justExpired: null,
+      // Tier object set when a wrench is activated, consumed by main.js
+      // to repair the career and trigger the right banner.
+      justRepaired: null,
     };
   }
 
@@ -76,6 +79,7 @@ RR.Powerups = (function () {
     p.justCollected = false;
     p.justActivated = null;
     p.justExpired = null;
+    p.justRepaired = null;
 
     if (p.active) {
       p.active.timer -= dt;
@@ -148,8 +152,20 @@ RR.Powerups = (function () {
     p.justActivated = type;
 
     if (type === 'shortcut') {
-      // Instant: clear NPCs ahead, advance world.
-      // Main wires this via the activation flag (it has access to traffic).
+      // Instant lightning blast: main wires the actual NPC/hazard clearing
+      // via the activation flag (it has access to traffic + hazards).
+      return;
+    }
+    if (type === 'wrench') {
+      // Roll a repair tier. Main consumes p.justRepaired to discount damage
+      // and pop a tier-specific banner.
+      const tiers = cfg.tiers || [{ roll: 1, fraction: 1, label: 'full' }];
+      const r = Math.random();
+      let chosen = tiers[tiers.length - 1];
+      for (const tr of tiers) {
+        if (r < tr.roll) { chosen = tr; break; }
+      }
+      p.justRepaired = { fraction: chosen.fraction, label: chosen.label };
       return;
     }
     p.active = { type, timer: cfg.duration, elapsed: 0, cfg };

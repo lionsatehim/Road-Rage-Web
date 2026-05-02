@@ -174,8 +174,20 @@ RR.Config = {
                   steerBoost: 1.5, accelBoost: 1.6, shoulderExtra: 14,
                   exitGrace: 0.5 },
       jump:     { weight: 3, duration: 0.7, hopHeight: 10, exitGrace: 0.4 },
-      shortcut: { weight: 1, duration: 0,   advance: 320 },
+      // Lightning: clears every car and hazard on screen. No "warp" forward —
+      // it's a clean-room reset. Visual flash via the existing shock timer.
+      shortcut: { weight: 1, duration: 0 },
       lofi:     { weight: 2, duration: 8.0, drainRate: 14, maxSpeedMph: 65 },
+      // Wrench: instant repair, percentage rolled at activation.
+      //   low (50%) → 25% damage repaired
+      //   med (35%) → 50%
+      //   full (15%)→ 100%
+      wrench:   { weight: 2, duration: 0,
+                  tiers: [
+                    { roll: 0.50, fraction: 0.25, label: 'low' },
+                    { roll: 0.85, fraction: 0.50, label: 'medium' },
+                    { roll: 1.00, fraction: 1.00, label: 'full' },
+                  ] },
     },
   },
 
@@ -193,11 +205,17 @@ RR.Config = {
     },
     shortcut: {
       color: '#ffe060',
-      texts: ['ZAP!', 'Warp!', 'Bypass!', 'Skip ahead!', 'Zoom!'],
+      texts: ['ZAP!', 'KAPOW!', 'BLAMMO!', 'POOF!', 'CLEARED!', 'BZZZT!', 'VAPORIZED!'],
     },
     lofi: {
       color: '#c870e0',
       texts: ['Chill tunes', 'Lo-fi vibes', 'Mellow mode', "Slowin' it down"],
+    },
+    wrench: {
+      // Tier-specific text is selected at activation in main.js; this entry
+      // is only the fallback used if a custom banner isn't supplied.
+      color: '#ff8030',
+      texts: ['Repaired!'],
     },
     pothole: {
       color: '#ff9040',

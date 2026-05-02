@@ -137,7 +137,19 @@
   }
 
   function tickDrive(dt) {
-    if (RR.Input.consumePause()) state.paused = !state.paused;
+    const pausePressed = RR.Input.consumePause();
+    if (pausePressed) {
+      state.paused = !state.paused;
+      // Mirror the pause state into audio. Track whether the user had
+      // already toggled mute manually so we don't override their choice
+      // when unpausing.
+      if (state.paused) {
+        state.mutedBeforePause = RR.Audio.isMuted();
+        if (!state.mutedBeforePause) RR.Audio.setMuted(true);
+      } else if (!state.mutedBeforePause) {
+        RR.Audio.setMuted(false);
+      }
+    }
     if (state.paused) {
       if (RR.Input.consumeEdge('KeyR')) {
         RR.Career.clearSave();
@@ -145,6 +157,7 @@
         state.scene = 'select';
         state.paused = false;
         RR.Audio.stopLofi();
+        if (!state.mutedBeforePause) RR.Audio.setMuted(false);
       }
       return;
     }
@@ -241,10 +254,26 @@
     updateTireMarks(dt);
 
     if (state.powerups.justActivated === 'shortcut') {
-      const advance = RR.Config.POWERUPS.types.shortcut.advance;
-      state.worldOffset += advance;
-      state.traffic.npcs = state.traffic.npcs.filter(n => n.y > state.car.y);
+      // Lightning: clear every car + every hazard on the road. The visual
+      // shock-flash sells the "ZAP" without needing to teleport the player.
+      state.traffic.npcs.length = 0;
+      if (state.hazards) state.hazards.hazards.length = 0;
       state.shockTimer = 1.0;
+    }
+    if (state.powerups.justRepaired) {
+      const tier = state.powerups.justRepaired;
+      const before = state.career.damage || 0;
+      const reduced = before * tier.fraction;
+      state.career.damage = Math.max(0, before - reduced);
+      const colors = { low: '#9eea9e', medium: '#ffe060', full: '#ff8030' };
+      const texts  = {
+        low:    ['Quick fix!', 'Patched up!', 'Bandaged!'],
+        medium: ['Tune-up!',   'Half-fixed!', 'Solid repair!'],
+        full:   ['GOOD AS NEW!', 'FULLY REPAIRED!', 'LIKE NEW!'],
+      };
+      const arr = texts[tier.label] || texts.low;
+      const text = arr[Math.floor(Math.random() * arr.length)];
+      triggerCustomBanner(text, colors[tier.label] || '#ff8030');
     }
 
     // Style: power-up activated → flat award + special airtime award for jumps.
@@ -341,7 +370,12 @@
       if (state.powerups.justActivated === 'jump')     RR.Audio.sfx('yeehaw');
       if (state.powerups.justActivated === 'shortcut') RR.Audio.sfx('thunder');
       if (state.powerups.justActivated === 'lofi')     RR.Audio.startLofi();
-      triggerBanner(state.powerups.justActivated);
+      if (state.powerups.justActivated === 'wrench')   RR.Audio.sfx('wrench');
+      // wrench uses a tier-specific custom banner triggered earlier; skip
+      // the default banner here so we don't overwrite it.
+      if (state.powerups.justActivated !== 'wrench') {
+        triggerBanner(state.powerups.justActivated);
+      }
     }
     if (state.powerups.justExpired === 'lofi') RR.Audio.stopLofi();
   }

@@ -145,6 +145,11 @@ RR.Road = (function () {
   // The transition zone for a boundary spans transHalf on EACH side of it,
   // so a row near the end of segment N is just as much "in transition" as
   // a row near the start of segment N+1. We detect both halves explicitly.
+  // How far before a transition we draw the dotted warning stripe. The
+  // edges only start lerping at transHalf, but the warning marker extends
+  // back into the prev segment so the driver sees it coming earlier.
+  const WARN_AHEAD = 240;
+
   function geometryAt(road, wy) {
     const sched = road.schedule;
     const transHalf = road.transitionLen / 2;
@@ -156,24 +161,36 @@ RR.Road = (function () {
     }
     const here = sched[segIdx];
 
-    // Decide which boundary's transition (if any) this row falls in:
+    // Decide which boundary affects this row:
     //   - latter half of (segIdx-1 → here): wy < here.start + transHalf
-    //   - earlier half of (here → segIdx+1): wy >= here.end - transHalf
+    //   - earlier half + warning lead-in of (here → segIdx+1):
+    //     wy >= here.end - transHalf - warnAhead, where warnAhead only
+    //     applies for closing transitions (opening doesn't get a lead-in)
     // Segments are >> transitionLen long, so both halves can't be true at once.
     let prevSeg = here, nextSeg = here, distFromBoundary = 0;
-    let withinZone = false;
+    let withinZone = false;   // inside the actual edge-lerp zone (transHalf each side)
+    let withinWarn = false;   // inside the dotted-warning extent (lead-in + zone)
     if (segIdx > 0 && wy < here.start + transHalf) {
       prevSeg = sched[segIdx - 1];
       nextSeg = here;
       distFromBoundary = wy - here.start;
       withinZone = true;
-    } else if (segIdx + 1 < sched.length && wy >= here.end - transHalf) {
-      prevSeg = here;
-      nextSeg = sched[segIdx + 1];
-      distFromBoundary = wy - here.end;   // negative through the earlier half
-      withinZone = true;
+      withinWarn = true;
+    } else if (segIdx + 1 < sched.length) {
+      const upcoming = sched[segIdx + 1];
+      const distAhead = here.end - wy;   // positive when boundary is ahead
+      const closingAhead = upcoming.lanes < here.lanes;
+      const warnDist = closingAhead ? WARN_AHEAD : 0;
+      if (distAhead <= transHalf + warnDist && distAhead > -transHalf) {
+        prevSeg = here;
+        nextSeg = upcoming;
+        distFromBoundary = wy - here.end;   // negative through earlier half
+        withinZone = (distAhead <= transHalf);
+        withinWarn = true;
+      }
     }
     const inTransition = withinZone && prevSeg.lanes !== nextSeg.lanes;
+    const inWarning    = withinWarn && prevSeg.lanes !== nextSeg.lanes;
 
     let leftEdge   = here.leftEdge;
     let rightEdge  = here.rightEdge;
@@ -207,6 +224,24 @@ RR.Road = (function () {
         rightEdge = prevSeg.rightEdge + (nextSeg.rightEdge - prevSeg.rightEdge) * eased;
         specialStripeX = isClosing ? nextSeg.rightEdge : prevSeg.rightEdge;
       }
+    } else if (inWarning) {
+      // Lead-in to a closing transition. Edges stay at prev's values, but we
+      // mark the future wall position with the dotted warning stripe so the
+      // driver has time to vacate the closing lane.
+      changeSide = nextSeg.changeSide;
+      isClosing  = nextSeg.lanes < prevSeg.lanes;
+      isOpening  = nextSeg.lanes > prevSeg.lanes;
+      if (changeSide === 'left'  && isClosing) specialStripeX = nextSeg.leftEdge;
+      if (changeSide === 'right' && isClosing) specialStripeX = nextSeg.rightEdge;
+    }
+
+    // Suppress the dotted stripe when it's about to coincide with a wall
+    // (closing) or has just peeled off one (opening) — keeps the marker
+    // visually distinct from the white edge line.
+    if (specialStripeX !== null) {
+      const distToLeft  = specialStripeX - leftEdge;
+      const distToRight = rightEdge - specialStripeX;
+      if (Math.min(distToLeft, distToRight) < 4) specialStripeX = null;
     }
 
     return {
@@ -366,17 +401,17 @@ RR.Road = (function () {
       }
     }
 
-    // Warning stripe at the closing/opening lane boundary — small dots so
-    // it reads as "this lane is on its way in or out". Only inside the
-    // transition zone.
+    // Warning stripe at the closing/opening lane boundary — sparse dots
+    // (2 px on / 7 px off) so it reads as a "warning" pattern, distinct
+    // from the regular dashed lane stripes.
     ctx.fillStyle = '#ffd040';
+    const dotPeriod = 9, dotOn = 2;
     for (let y = 0; y < H; y++) {
       const g = rows[y].g;
       if (g.specialStripeX === null) continue;
-      // Dotted: 1 px on every 3 px of worldY.
       const wy = rows[y].wy;
-      const dotPhase = ((wy % 3) + 3) % 3;
-      if (dotPhase >= 1) continue;
+      const dotPhase = ((wy % dotPeriod) + dotPeriod) % dotPeriod;
+      if (dotPhase >= dotOn) continue;
       const sx = Math.round(g.specialStripeX) - 1;
       ctx.fillRect(sx, y, 2, 1);
     }

@@ -200,13 +200,12 @@ RR.Hazards = (function () {
     const x = Math.round(it.x - C.CAR.width / 2);
     const y = Math.round(it.y - C.CAR.height / 2);
     ctx.drawImage(it.sprite, x, y);
-    // Pulsing red hazard light on the roof — quick visual cue that this
-    // car is broken-down, not active traffic. 1 Hz blink via screen y.
-    const blinkOn = ((it.y | 0) % 24) < 12;
-    if (blinkOn) {
-      ctx.fillStyle = '#ff4040';
-      ctx.fillRect(Math.round(it.x) - 1, y - 2, 2, 2);
-    }
+    // Hazard flashers on the rear bumper — both tail lights blink in sync
+    // at ~1.4 Hz. Reads as "broken-down, do not approach".
+    const blinkOn = (Math.floor(performance.now() / 350) % 2) === 0;
+    ctx.fillStyle = blinkOn ? '#ff4040' : '#601010';
+    ctx.fillRect(x + 5, y + 21, 2, 2);
+    ctx.fillRect(x + 9, y + 21, 2, 2);
   }
 
   function draw(ctx, h) {
