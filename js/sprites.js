@@ -127,6 +127,47 @@ RR.Sprites = (function () {
     makeNpcSprite([200, 200, 210]),  // silver
   ];
 
+  // Souped-up sport coupe — pointier nose than the sedan template, dual
+  // red flame stripes down the body, chrome spoiler protruding past the
+  // rear bumper, dual exhaust pips. Reads "this driver wants to race you".
+  // Same 16x24 footprint so collision math is unchanged.
+  // '#' matte body, 'd' tinted glass, 'D' wheel, 'f' flame stripe,
+  // 'S' chrome spoiler, 'E' chrome exhaust pip, '.' transparent.
+  const NPC_SPORT = makeSprite([
+    '................',
+    '......####......',
+    '....########....',
+    '...##########...',
+    '..############..',
+    '..#dddddddddd#..',
+    '..#dddddddddd#..',
+    '..############..',
+    '..D####ff####D..',
+    '..D####ff####D..',
+    '..#####ff#####..',
+    '..#####ff#####..',
+    '..#####ff#####..',
+    '..#####ff#####..',
+    '..#####ff#####..',
+    '..#####ff#####..',
+    '..D####ff####D..',
+    '..D####ff####D..',
+    '..#dddddddddd#..',
+    '..#dddddddddd#..',
+    '..############..',
+    '.S############S.',
+    'SS############SS',
+    '....EE####EE....',
+  ], {
+    '#': [40,  40,  50],
+    'd': [20,  22,  30],
+    'D': [22,  22,  22],
+    'f': [220, 60,  50],
+    'S': [190, 190, 200],
+    'E': [150, 150, 160],
+    '.': null,
+  });
+
   // Road-rage tinted player car — same shape, red wash overlaid via source-atop.
   function tinted(srcCanvas, rgba) {
     const c = document.createElement('canvas');
@@ -430,5 +471,5 @@ RR.Sprites = (function () {
     tower: M_TOWER, streetlight: M_STREETLIGHT, billboard: M_BILLBOARD,
   };
 
-  return { makeSprite, draw, PLAYER, PLAYER_RAGING, PLAYER_RAGING_YELLOW, NPC_VARIANTS, PICKUPS, MAP };
+  return { makeSprite, draw, PLAYER, PLAYER_RAGING, PLAYER_RAGING_YELLOW, NPC_VARIANTS, NPC_SPORT, PICKUPS, MAP };
 })();

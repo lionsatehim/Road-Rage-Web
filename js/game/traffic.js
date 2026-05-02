@@ -99,8 +99,18 @@ RR.Traffic = (function () {
     for (const lx of centers) {
       if (!laneClearAt(traffic.npcs, lx, spawnY, C.TRAFFIC.minLaneSeparation)) continue;
 
-      const variants = RR.Sprites.NPC_VARIANTS;
-      const sprite = variants[Math.floor(Math.random() * variants.length)];
+      let sprite;
+      if (archCfg.sportSprite && RR.Sprites.NPC_SPORT) {
+        sprite = RR.Sprites.NPC_SPORT;
+      } else {
+        const variants = RR.Sprites.NPC_VARIANTS;
+        sprite = variants[Math.floor(Math.random() * variants.length)];
+      }
+      // Souped-up coupes merge sharper than ordinary lane-changers — short
+      // approach time so a pass attempt commits decisively.
+      const baseLaneRate = archCfg.sportSprite
+        ? (3.5 + Math.random() * 1.0)
+        : (1.8 + Math.random() * 1.2);
       const npc = {
         x: lx, y: spawnY,
         targetX: lx,
@@ -111,7 +121,7 @@ RR.Traffic = (function () {
         crashed: false,
         // Per-NPC lateral approach rate for lane changes — randomized so
         // weavers/tailgaters don't all change lanes at the same brisk pace.
-        laneChangeRate: 1.8 + Math.random() * 1.2,
+        laneChangeRate: baseLaneRate,
         sprite: sprite,
         braking: false,
         // Blinker state: 0 = off, -1 = left, +1 = right. Driven by lane-change
@@ -177,6 +187,45 @@ RR.Traffic = (function () {
             }
           }
           npc.timer = 3.0 + Math.random() * 3.0;
+        }
+        npc.x += (npc.targetX - npc.x) * approach(npc.laneChangeRate);
+        break;
+      }
+
+      case 'soupedUp': {
+        // Aggressive passer: as soon as any car (NPC or player) is close
+        // ahead in the same lane, look for an open adjacent lane and merge.
+        // Short cooldown between merge attempts so the coupe will weave
+        // through traffic rather than settle into one lane.
+        if (npc.timer > 0) {
+          npc.timer -= dt;
+        } else {
+          const ahead = aheadInLane(npcs, npc);
+          let blockDy = ahead ? ahead.dy : Infinity;
+          if (Math.abs(player.x - npc.x) < SAME_LANE_DX) {
+            const dy = npc.y - player.y;
+            if (dy > 0 && dy < blockDy) blockDy = dy;
+          }
+          if (blockDy < 90) {
+            const centers = laneCenters(road);
+            let curIdx = 0, bestDx = Infinity;
+            for (let i = 0; i < centers.length; i++) {
+              const d = Math.abs(centers[i] - npc.targetX);
+              if (d < bestDx) { bestDx = d; curIdx = i; }
+            }
+            const order = Math.random() < 0.5 ? [-1, 1] : [1, -1];
+            for (const dir of order) {
+              const idx = curIdx + dir;
+              if (idx < 0 || idx >= centers.length) continue;
+              const target = centers[idx];
+              if (laneClearAt(npcs, target, npc.y, 60) &&
+                  !playerInLane(player, target, npc.y, 50)) {
+                npc.targetX = target;
+                npc.timer = 0.6 + Math.random() * 0.6;
+                break;
+              }
+            }
+          }
         }
         npc.x += (npc.targetX - npc.x) * approach(npc.laneChangeRate);
         break;

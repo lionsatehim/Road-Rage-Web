@@ -78,6 +78,9 @@ RR.Config = {
       tailgater:  { speedFrac: [0.85, 1.05], weight: 2 },
       weaver:     { speedFrac: [0.55, 0.80], weight: 2 },
       brakeCheck: { speedFrac: [0.55, 0.75], weight: 1 },
+      // Souped-up sport coupe: above player top speed, aggressively merges
+      // around any car blocking the lane. Spawns from behind and passes.
+      soupedUp:   { speedFrac: [1.05, 1.20], weight: 1, sportSprite: true },
     },
   },
   CAREERS: {
