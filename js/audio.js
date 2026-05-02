@@ -105,8 +105,8 @@ RR.Audio = (function () {
     const f  = 70 + 220 * clamped + wob;
     engine.o1.frequency.setTargetAtTime(f,        t, 0.04);
     engine.o2.frequency.setTargetAtTime(f * 0.5,  t, 0.04);
-    const targetVol = muted ? 0 :
-      (clamped < 0.01 ? 0.022 : (0.028 + 0.07 * Math.min(1, clamped)));
+    const targetVol = (muted || clamped <= 0) ? 0 :
+      (0.028 + 0.07 * Math.min(1, clamped));
     engine.g.gain.setTargetAtTime(targetVol, t, 0.05);
   }
 
