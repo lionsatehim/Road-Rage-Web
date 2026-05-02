@@ -39,7 +39,7 @@ RR.Render = (function () {
     }
   }
 
-  function drawCar(ctx, car, raging, jumpH, invincT) {
+  function drawCar(ctx, car, raging, jumpH, invincT, damageFrame) {
     const lift = jumpH || 0;
     const x = Math.round(car.x - C.CAR.width / 2);
     const y = Math.round(car.y - C.CAR.height / 2 - lift);
@@ -59,10 +59,18 @@ RR.Render = (function () {
     }
     // RR mode: alternate between red and yellow tints (~12 Hz) for a
     // Mario-star "invincible" feel. Outside RR: plain player sprite.
-    let sprite = RR.Sprites.PLAYER;
-    if (raging) {
-      const tick = Math.floor(performance.now() / 80) % 2;
-      sprite = tick === 0 ? RR.Sprites.PLAYER_RAGING : RR.Sprites.PLAYER_RAGING_YELLOW;
+    // First try the file-loaded sheet (with baked rage variants); fall
+    // back to the procedural PLAYER / PLAYER_RAGING / _YELLOW constants.
+    const ragingMode = raging
+      ? (Math.floor(performance.now() / 80) % 2 === 0 ? 'red' : 'yellow')
+      : null;
+    let sprite = RR.Sprites.getPlayerSprite(0, damageFrame || 0, ragingMode);
+    if (!sprite) {
+      if (raging) {
+        sprite = ragingMode === 'red' ? RR.Sprites.PLAYER_RAGING : RR.Sprites.PLAYER_RAGING_YELLOW;
+      } else {
+        sprite = RR.Sprites.PLAYER;
+      }
     }
     RR.Sprites.draw(ctx, sprite, x, y);
     drawBrakeLights(ctx, x, y, car.braking);

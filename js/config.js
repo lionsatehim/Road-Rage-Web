@@ -256,21 +256,25 @@ RR.Config = {
       // thunder: 'audio/thunder.wav',
     },
   },
-  // Sprite overrides (NPCs only for now). Each vehicle class can supply a
-  // PNG sprite sheet — a horizontal strip of `frames` images at 16x24 each.
+  // Sprite overrides. Each vehicle class can supply a PNG sprite sheet —
+  // a horizontal strip of `frames` images at 16x24 each (or whatever the
+  // sheet dimensions are; the loader infers frame width from image.width
+  // / frames).
   //
-  // Damage progression: frame 0 = pristine, last frame = wrecked, with the
-  // intermediate frames mapped to player damage tiers (NPCs flip directly
-  // to the last frame when crashed). Thresholds are fractions of damageMax.
+  // Damage progression: frame 0 = pristine, last frame = wrecked, with
+  // the intermediate frames mapped to damage tiers. NPCs flip directly to
+  // the last frame on crash. The player frame is driven live by
+  // state.career.damage against damageMax via damageThresholds.
   //
   // Tint pipeline: at load time we bake one offscreen canvas per
-  // (frame × tint) using `multiply` blend, so a single grayscale sheet can
-  // produce N color variants. Pure-black pixels in the sheet (windows,
-  // wheels, brake lights, etc.) survive any tint untouched. If a sheet
-  // fails to load, the NPC falls back to the procedural sprite as today.
+  // (frame × tint) using `multiply` blend, so a single grayscale sheet
+  // can produce N color variants. Pure-black pixels in the sheet
+  // (windows, wheels, brake lights, etc.) survive any tint untouched. If
+  // a sheet fails to load, the vehicle falls back to the procedural
+  // sprite as today.
   SPRITES: {
-    damageMax: 100,                       // "totaled" threshold (player, future)
-    damageThresholds: [0.34, 0.67, 1.0],  // tier transitions (player, future)
+    damageMax: 100,                       // "totaled" threshold (player)
+    damageThresholds: [0.34, 0.67, 1.0],  // tier transitions (player)
     vehicles: {
       sedan: {
         url: 'sprites/sedan.png',
@@ -283,6 +287,24 @@ RR.Config = {
         frames: 4,
         tints: ['#282832'],
       },
+      // Player car. Damage frame is driven live by state.career.damage
+      // against damageMax above. The sheet additionally has Road Rage
+      // overlays auto-baked at load (red + yellow flicker) so the
+      // star-power flash works on file art the same way it does on the
+      // procedural sprite. Single tint by default — change to a list of
+      // colors if you want player car selection later.
+      player: {
+        url: 'sprites/player.png',
+        frames: 4,
+        tints: ['#eeeeee'],
+      },
+    },
+    // Road Rage flash overlays applied on top of the body-tinted player
+    // frame, alternating per draw tick. Plain rgba so they read as a
+    // wash, not a recolor — windows and dark detail still show through.
+    rageTints: {
+      red:    'rgba(230,  50,  50, 0.55)',
+      yellow: 'rgba(255, 220,  60, 0.60)',
     },
   },
   // ---- Map types ----

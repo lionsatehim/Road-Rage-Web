@@ -504,6 +504,22 @@ RR.Sprites = (function () {
     return c;
   }
 
+  // Apply a translucent color wash on top of an already-baked frame —
+  // used for the player Road Rage red/yellow flicker. source-atop keeps
+  // the alpha mask of the underlying canvas so transparent areas stay
+  // transparent and dark detail (windows, wheels) shows through.
+  function rageOverlay(baseCanvas, rgba) {
+    const c = document.createElement('canvas');
+    c.width = baseCanvas.width;
+    c.height = baseCanvas.height;
+    const cx = c.getContext('2d');
+    cx.drawImage(baseCanvas, 0, 0);
+    cx.globalCompositeOperation = 'source-atop';
+    cx.fillStyle = rgba;
+    cx.fillRect(0, 0, c.width, c.height);
+    return c;
+  }
+
   function loadVehicleSheets() {
     const cfg = (RR.Config.SPRITES && RR.Config.SPRITES.vehicles) || {};
     for (const className in cfg) {
@@ -523,7 +539,26 @@ RR.Sprites = (function () {
           }
           frames.push(perTint);
         }
-        vehicleSheets[className] = { frameCount, tintCount: tints.length, frames };
+        const sheet = { frameCount, tintCount: tints.length, frames };
+        // Player-only: pre-bake Road Rage red + yellow overlays for every
+        // (frame × tint) so the flicker is just an indexed lookup at draw
+        // time. Memory cost is tiny (frameCount × tintCount × 2 canvases).
+        if (className === 'player') {
+          const rage = (RR.Config.SPRITES && RR.Config.SPRITES.rageTints) || {};
+          sheet.rageFrames = {};
+          for (const mode in rage) {
+            const rows = [];
+            for (let f = 0; f < frameCount; f++) {
+              const row = [];
+              for (let t = 0; t < tints.length; t++) {
+                row.push(rageOverlay(frames[f][t], rage[mode]));
+              }
+              rows.push(row);
+            }
+            sheet.rageFrames[mode] = rows;
+          }
+        }
+        vehicleSheets[className] = sheet;
       };
       img.onerror = () => { /* silent — fall back to procedural */ };
       img.src = v.url;
@@ -565,6 +600,36 @@ RR.Sprites = (function () {
     return s ? s.frameCount - 1 : 0;
   }
 
+  // Convert an absolute damage value into a sprite frame index using
+  // the configured thresholds. Caller-agnostic — works the same for
+  // player or any future damage-tiered system.
+  function damageFrameFor(damageValue) {
+    const cfg = RR.Config.SPRITES || {};
+    const max = cfg.damageMax || 100;
+    const ths = cfg.damageThresholds || [];
+    const frac = Math.max(0, damageValue) / max;
+    for (let i = 0; i < ths.length; i++) {
+      if (frac < ths[i]) return i;
+    }
+    return ths.length;
+  }
+
+  // Resolve the player's render canvas. Returns null if no sheet has
+  // loaded — caller should fall back to the procedural PLAYER constants.
+  // ragingMode: undefined/null for normal, or a key in SPRITES.rageTints
+  // ('red' / 'yellow') for the RR flash.
+  function getPlayerSprite(tintIdx, frameIdx, ragingMode) {
+    const sheet = vehicleSheets.player;
+    if (!sheet) return null;
+    const f = Math.max(0, Math.min(frameIdx | 0, sheet.frameCount - 1));
+    const t = Math.max(0, (tintIdx | 0)) % sheet.tintCount;
+    if (ragingMode && sheet.rageFrames && sheet.rageFrames[ragingMode]) {
+      return sheet.rageFrames[ragingMode][f][t];
+    }
+    return sheet.frames[f][t];
+  }
+  function playerSheetExists() { return !!vehicleSheets.player; }
+
   return {
     makeSprite, draw,
     PLAYER, PLAYER_RAGING, PLAYER_RAGING_YELLOW,
@@ -572,5 +637,6 @@ RR.Sprites = (function () {
     // Vehicle sheet API
     vehicleSheetExists, vehicleTintCount, vehicleFrameCount,
     getNpcSprite, proceduralTintCount, wreckedFrame,
+    getPlayerSprite, playerSheetExists, damageFrameFor,
   };
 })();

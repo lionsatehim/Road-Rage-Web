@@ -615,7 +615,8 @@
     RR.Traffic.draw(ctx, state.traffic);
     RR.Render.drawCar(ctx, state.car, RR.Rage.isRoadRage(state.rage),
                       RR.Powerups.jumpHeight(state.powerups),
-                      RR.Powerups.invincibleRemaining(state.powerups));
+                      RR.Powerups.invincibleRemaining(state.powerups),
+                      RR.Sprites.damageFrameFor(state.career.damage || 0));
     RR.Render.drawCoffeeVignette(ctx, state.powerups, state.time);
     RR.Render.drawRoadRageVignette(ctx, state.rage, state.time);
     RR.Render.drawShortcutFlash(ctx, state.shockTimer);
