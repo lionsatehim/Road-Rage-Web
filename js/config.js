@@ -293,7 +293,7 @@ RR.Config = {
       sport: {
         url: 'sprites/sporty.png',
         frames: 4,
-        tints: ['#282832', '#FF0000'],
+        tints: ['#282832', '#FF0000', '#00FF00', '#FFFF00', '#0000FF'],
         protectedThreshold: 252,  // uncomment to keep stripes white
       },
       // Player car. Damage frame is driven live by state.career.damage
