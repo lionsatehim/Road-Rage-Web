@@ -275,17 +275,26 @@ RR.Config = {
   SPRITES: {
     damageMax: 100,                       // "totaled" threshold (player)
     damageThresholds: [0.34, 0.67, 1.0],  // tier transitions (player)
+    // protectedThreshold (optional per vehicle, default 252):
+    //   Pixels whose R, G, and B channels are ALL >= this value are
+    //   re-stamped from the original source after the multiply tint so
+    //   they stay white. Use for racing stripes, chrome trim, roof markings.
+    //     252  catches pure white + near-whites from AI generation tools
+    //     255  strict pure-white only
+    //    null  disable; every non-black pixel tints with the body
     vehicles: {
       sedan: {
         url: 'sprites/sedan.png',
         frames: 4,
         tints: ['#3c6ec8', '#3ca050', '#f0c83c',
                 '#dc8232', '#9650b4', '#c8c8d2'],
+        // protectedThreshold: 252,
       },
       sport: {
-        // url: 'sprites/sport.png',
+        url: 'sprites/sporty.png',
         frames: 4,
-        tints: ['#282832'],
+        tints: ['#282832', '#FF0000'],
+        protectedThreshold: 252,  // uncomment to keep stripes white
       },
       // Player car. Damage frame is driven live by state.career.damage
       // against damageMax above. The sheet additionally has Road Rage
@@ -297,6 +306,7 @@ RR.Config = {
         url: 'sprites/player.png',
         frames: 4,
         tints: ['#eeeeee'],
+        // protectedThreshold: 252,  // uncomment to keep stripes white
       },
     },
     // Road Rage flash overlays applied on top of the body-tinted player

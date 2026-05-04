@@ -487,7 +487,26 @@ RR.Sprites = (function () {
   // }
   const vehicleSheets = {};
 
-  function bakeFrame(img, frameIdx, fw, fh, tint) {
+  // Extract pixels that should survive tinting unchanged — those whose RGB
+  // channels are all at or above `threshold` (default 252, catching pure
+  // white and near-white from AI tools). Returns a canvas with everything
+  // else made transparent so it can be composited on top of a tinted frame.
+  function extractProtected(img, sx, fw, fh, threshold) {
+    const th = threshold != null ? threshold : 252;
+    const c = document.createElement('canvas');
+    c.width = fw; c.height = fh;
+    const cx = c.getContext('2d');
+    cx.drawImage(img, sx, 0, fw, fh, 0, 0, fw, fh);
+    const id = cx.getImageData(0, 0, fw, fh);
+    const d = id.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (!(d[i] >= th && d[i+1] >= th && d[i+2] >= th)) d[i+3] = 0;
+    }
+    cx.putImageData(id, 0, 0);
+    return c;
+  }
+
+  function bakeFrame(img, frameIdx, fw, fh, tint, protectedThreshold) {
     const c = document.createElement('canvas');
     c.width = fw; c.height = fh;
     const cx = c.getContext('2d');
@@ -500,6 +519,23 @@ RR.Sprites = (function () {
       cx.fillRect(0, 0, fw, fh);
       cx.globalCompositeOperation = 'destination-in';
       cx.drawImage(img, frameIdx * fw, 0, fw, fh, 0, 0, fw, fh);
+      // Re-stamp near-white pixels from the original on top so racing
+      // stripes, chrome trim, and other bright markings stay white
+      // regardless of body tint. protectedThreshold: null skips this step.
+      // NOTE: getImageData requires an HTTP server — it throws a SecurityError
+      // on file:// URLs. We catch and warn rather than crash the whole sheet.
+      if (protectedThreshold !== null) {
+        try {
+          const over = extractProtected(img, frameIdx * fw, fw, fh, protectedThreshold);
+          cx.globalCompositeOperation = 'source-over';
+          cx.drawImage(over, 0, 0);
+        } catch (e) {
+          console.warn(
+            '[RR.Sprites] protectedThreshold requires an HTTP server — ' +
+            'getImageData is blocked on file:// URLs. ' +
+            'Run: python3 -m http.server 8080', e);
+        }
+      }
     }
     return c;
   }
@@ -531,11 +567,18 @@ RR.Sprites = (function () {
         const fw = Math.floor(img.width / frameCount);
         const fh = img.height;
         const tints = (v.tints && v.tints.length) ? v.tints : [null];
+        // protectedThreshold: pixels with all RGB channels >= this value
+        // are re-stamped from the original after tinting so they stay
+        // white. Disabled by default (null) because getImageData requires
+        // a local HTTP server — file:// URLs taint the canvas and cause a
+        // SecurityError. Enable by setting protectedThreshold: 252 in the
+        // vehicle config entry and serving via e.g. `python3 -m http.server`.
+        const protTh = v.protectedThreshold !== undefined ? v.protectedThreshold : null;
         const frames = [];
         for (let f = 0; f < frameCount; f++) {
           const perTint = [];
           for (const tint of tints) {
-            perTint.push(bakeFrame(img, f, fw, fh, tint));
+            perTint.push(bakeFrame(img, f, fw, fh, tint, protTh));
           }
           frames.push(perTint);
         }
