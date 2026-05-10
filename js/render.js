@@ -118,18 +118,22 @@ RR.Render = (function () {
       ctx.fillRect(sx, y0, segW, segH);
     }
 
-    // Road Rage indicator
-    if (rage.roadRageTimer > 0) {
-      const pulse = (Math.sin(t * 14) + 1) * 0.5;
+    // Permanent "RAGE" label below the meter. Pulses red/orange and
+    // gains an exclamation mark while Road Rage is active.
+    const inRR = rage.roadRageTimer > 0;
+    const pulse = inRR ? (Math.sin(t * 14) + 1) * 0.5 : 0;
+    if (inRR) {
       ctx.strokeStyle = pulse > 0.5 ? '#ff6060' : '#ffaa00';
       ctx.lineWidth = 1;
       ctx.strokeRect(x0 - 3, y0 - 3, barW + 6, segH + 6);
-      ctx.fillStyle = pulse > 0.5 ? '#ff6060' : '#ffaa00';
-      ctx.font = '8px "Courier New", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('RAGE!', C.INTERNAL_WIDTH / 2, y0 + segH + 8);
-      ctx.textAlign = 'left';
     }
+    ctx.font = 'bold 8px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = inRR
+      ? (pulse > 0.5 ? '#ff6060' : '#ffaa00')
+      : '#888';
+    ctx.fillText(inRR ? 'RAGE!' : 'RAGE METER', C.INTERNAL_WIDTH / 2, y0 + segH + 2);
+    ctx.textAlign = 'left';
   }
 
   // Shortcut effect: dramatic flash with attack/hold/release envelope.
@@ -264,7 +268,6 @@ RR.Render = (function () {
     ctx.font = '8px "Courier New", monospace';
     ctx.textBaseline = 'top';
 
-    const mph = Math.round(s.car.speed * C.CAR.mphFactor);
     ctx.textAlign = 'left';
     // Career line replaces the placeholder title once a track is picked.
     if (s.career && s.career.track) {
@@ -276,8 +279,13 @@ RR.Render = (function () {
     } else {
       ctx.fillText('RUSH HOUR', 4, 4);
     }
+    // Top-right: lifetime style points, full digits (no K/M truncation).
+    // This persists across shifts so the user sees their career total,
+    // not the per-shift tally (which legitimately resets at each start).
     ctx.textAlign = 'right';
-    ctx.fillText(mph + ' MPH', C.INTERNAL_WIDTH - 4, 4);
+    ctx.fillStyle = '#ffe060';
+    ctx.fillText('STYLE ' + (s.style.lifetime || 0), C.INTERNAL_WIDTH - 4, 4);
+    ctx.fillStyle = '#fff';
     ctx.textAlign = 'left';
 
     drawRageMeter(ctx, s.rage, t);
@@ -318,55 +326,92 @@ RR.Render = (function () {
       : mins + ':' + secs.toString().padStart(2, '0');
     ctx.fillText(time, W - 4, 16);
 
-    // Lifetime earnings + promo dots, bottom-right.
+    // Bottom-right stack of vertical gauges, from top to bottom:
+    //   [trophy, when retiring]
+    //   PRO or RET bar  + label
+    //   DMG bar         + label
+    //   $earnings
+    // Hugs the right edge to leave the right shoulder clear for scenery.
     const tcfg = RR.Career.trackCfg(car);
-    ctx.fillStyle = '#9eea9e';
-    ctx.fillText('$' + car.lifetimeEarnings, W - 4, H - 22);
-    // Live damage readout: cost-to-repair grows during the shift; tinting
-    // tells the player at a glance how much next shift will sting.
-    const repair = RR.Career.repairCost(car);
-    ctx.fillStyle = repair > 200 ? '#ff6060'
-                   : repair > 80  ? '#ffaa40'
-                   : '#aaa';
-    ctx.fillText('DMG $' + repair, W - 4, H - 12);
-
-    // Damage bar above the promo dots so a glance tells the player how
-    // beat-up the car is right now.
-    drawDamageBar(ctx, car, W - 64, H - 42, 60, 3);
-
-    // At the top rung, promotions no longer matter — replace the streak
-    // dots with a retirement progress bar so the player can see how close
-    // they are to the finish line.
     const atTop = car.levelIdx === tcfg.levels.length - 1;
+    const gW = 6;
+    const gH = 30;
+    const gX = W - 10;
+
+    // --- DMG (always shown) ---
+    const dmgFrac = Math.min(1, car.damage / 200);  // soft cap ~6 hard crashes
+    const dmgColor = dmgFrac > 0.66 ? '#ff6060'
+                   : dmgFrac > 0.33 ? '#ffaa40'
+                   : '#7fe07f';
+    const dmgBarY = H - 51;
+    drawVerticalBar(ctx, gX, dmgBarY, gW, gH, dmgFrac, dmgColor);
+    ctx.font = '8px "Courier New", monospace';
+    ctx.fillStyle = dmgColor;
+    ctx.textAlign = 'right';
+    ctx.fillText('DMG', gX + gW, H - 18);
+
+    // --- PRO (streak progress) or RET (retirement progress, top rung only) ---
+    const proBarY = dmgBarY - gH - 10;
     if (atTop) {
-      const target = cc.retirementTarget;
-      const frac = Math.min(1, car.lifetimeEarnings / target);
-      const barX = W - 64, barY = H - 32, barW = 60, barH = 4;
-      ctx.fillStyle = '#222';
-      ctx.fillRect(barX, barY, barW, barH);
+      const retFrac = Math.min(1, car.lifetimeEarnings / cc.retirementTarget);
+      drawVerticalBar(ctx, gX, proBarY, gW, gH, retFrac, '#ffe060');
       ctx.fillStyle = '#ffe060';
-      ctx.fillRect(barX, barY, Math.round(barW * frac), barH);
-      ctx.font = '8px "Courier New", monospace';
-      ctx.fillStyle = '#ffe060';
-      ctx.textAlign = 'right';
-      ctx.fillText('RETIRE', barX - 2, barY - 2);
+      ctx.fillText('RET', gX + gW, proBarY + gH + 2);
+      drawTrophyIcon(ctx, gX + gW - 6, proBarY - 8);
     } else {
       const need = tcfg.promoteStreak || 3;
-      const dotY = H - 32, dotR = 3;
-      let dotX = W - 6;
-      for (let i = need - 1; i >= 0; i--) {
-        const filled = i < car.promoStreak;
-        ctx.beginPath();
-        ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2);
-        ctx.fillStyle = filled ? '#7fe07f' : '#222';
-        ctx.fill();
-        ctx.strokeStyle = '#7fe07f';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        dotX -= dotR * 2 + 2;
+      const proFrac = Math.min(1, car.promoStreak / need);
+      drawVerticalBar(ctx, gX, proBarY, gW, gH, proFrac, '#7fe07f', need);
+      ctx.fillStyle = '#7fe07f';
+      ctx.fillText('PRO', gX + gW, proBarY + gH + 2);
+    }
+
+    // --- Lifetime earnings, very bottom-right. ---
+    ctx.fillStyle = '#9eea9e';
+    ctx.textAlign = 'right';
+    ctx.fillText('$' + car.lifetimeEarnings, gX + gW, H - 8);
+    ctx.textAlign = 'left';
+  }
+
+  // Vertical fill bar. fillFrac in [0,1] fills from the bottom upward.
+  // If `segments` is given, snaps fill to whole-segment increments and
+  // draws thin dividers between segments. Otherwise renders continuous.
+  function drawVerticalBar(ctx, x, y, w, h, fillFrac, color, segments) {
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(x, y, w, h);
+    let frac = Math.max(0, Math.min(1, fillFrac));
+    if (segments && segments > 0) {
+      frac = Math.floor(frac * segments + 0.0001) / segments;
+    }
+    const fillH = Math.round(h * frac);
+    if (fillH > 0) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y + h - fillH, w, fillH);
+    }
+    if (segments && segments > 1) {
+      ctx.fillStyle = '#0a0a0a';
+      for (let i = 1; i < segments; i++) {
+        const sy = y + Math.round(h * i / segments);
+        ctx.fillRect(x, sy, w, 1);
       }
     }
-    ctx.textAlign = 'left';
+  }
+
+  // Small trophy icon — drawn above the RET bar when the player is on
+  // the final rung, signaling "this is the prize you're climbing toward".
+  function drawTrophyIcon(ctx, x, y) {
+    ctx.fillStyle = '#ffe060';
+    // Cup top (6 wide)
+    ctx.fillRect(x, y, 6, 1);
+    // Bowl
+    ctx.fillRect(x + 1, y + 1, 4, 1);
+    ctx.fillRect(x + 1, y + 2, 4, 1);
+    // Stem
+    ctx.fillRect(x + 2, y + 3, 2, 1);
+    // Base
+    ctx.fillRect(x + 1, y + 4, 4, 1);
   }
 
   function drawPowerupSlot(ctx, p, t) {
@@ -464,19 +509,6 @@ RR.Render = (function () {
     ctx.textBaseline = 'top';
   }
 
-  // Damage bar — segmented so each crash visibly fills another chunk. Soft
-  // cap at 200 damage units (about 6 hard crashes); past that it pegs full.
-  function drawDamageBar(ctx, career, x, y, w, h) {
-    const cap = 200;
-    const frac = Math.min(1, career.damage / cap);
-    ctx.fillStyle = '#222';
-    ctx.fillRect(x, y, w, h);
-    let color = '#7fe07f';
-    if (frac > 0.66) color = '#ff6060';
-    else if (frac > 0.33) color = '#ffaa40';
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, Math.round(w * frac), h);
-  }
 
   // Career select screen. Shown only at game start (or after retiring / game
   // over). Three tracks, picked with 1/2/3.
@@ -573,8 +605,8 @@ RR.Render = (function () {
     ctx.fillStyle = 'rgba(0,0,0,0.78)';
     ctx.fillRect(0, 0, W, H);
 
-    const boxX = 16, boxW = W - 32;
-    const boxY = 22, boxH = H - 44;
+    const boxX = 12, boxW = W - 24;
+    const boxY = 16, boxH = H - 32;
     ctx.fillStyle = '#0e1620';
     ctx.fillRect(boxX, boxY, boxW, boxH);
     ctx.strokeStyle = '#444';
@@ -582,69 +614,117 @@ RR.Render = (function () {
     ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
 
     ctx.textBaseline = 'top';
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 10px "Courier New", monospace';
 
+    // ---- Header ----
     let header = 'SHIFT COMPLETE';
     let headColor = '#9eea9e';
-    if (r.raging) { header = 'YOU ARRIVED IN A RAGE'; headColor = '#ff6060'; }
-    else if (r.late) { header = 'YOU WERE LATE'; headColor = '#ffaa40'; }
+    if (r.raging)      { header = 'YOU ARRIVED IN A RAGE'; headColor = '#ff6060'; }
+    else if (r.late)   { header = 'YOU WERE LATE';         headColor = '#ffaa40'; }
+    ctx.font = 'bold 10px "Courier New", monospace';
+    ctx.textAlign = 'center';
     ctx.fillStyle = headColor;
     ctx.fillText(header, W / 2, boxY + 6);
 
+    // ---- Promo / demo announcement (one line under header) ----
+    ctx.font = 'bold 8px "Courier New", monospace';
+    if (r.promoted) {
+      ctx.fillStyle = '#ffe060';
+      ctx.fillText('★ PROMOTED → ' + r.newLevelTitle + ' — ' + r.newCity + ' ★',
+                   W / 2, boxY + 18);
+    } else if (r.demoted) {
+      ctx.fillStyle = '#ff8060';
+      ctx.fillText('▼ DEMOTED → ' + r.newLevelTitle + ' — ' + r.newCity + ' ▼',
+                   W / 2, boxY + 18);
+    }
+
+    // ---- Two columns ----
+    const colTop = boxY + 30;
+    const lcL = boxX + 6;                    // left col, label x
+    const lcR = boxX + boxW / 2 - 4;         // left col, value right x
+    const rcL = boxX + boxW / 2 + 4;         // right col, label x
+    const rcR = boxX + boxW - 6;             // right col, value right x
+
+    let yL = colTop;
+    let yR = colTop;
+
     ctx.font = '8px "Courier New", monospace';
-    ctx.textAlign = 'left';
-    let y = boxY + 22;
-    const lx = boxX + 8, rx = boxX + boxW - 8;
 
-    function row(label, value, color) {
-      ctx.fillStyle = '#aaa';
-      ctx.textAlign = 'left';
-      ctx.fillText(label, lx, y);
-      ctx.fillStyle = color || '#fff';
-      ctx.textAlign = 'right';
-      ctx.fillText(value, rx, y);
-      y += 10;
-    }
+    // === LEFT COLUMN ===
 
-    row('Time', formatTime(r.elapsed) + ' / ' + formatTime(r.deadline),
-        r.late ? '#ff8060' : '#9eea9e');
-    row('Stress', stressLabel(r), stressColor(r));
+    yL = sectionHeader(ctx, 'DRIVE', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Time',
+               formatTime(r.elapsed) + ' / ' + formatTime(r.deadline),
+               r.late ? '#ff8060' : '#9eea9e',
+               lcL, lcR, yL);
+    yL = kvRow(ctx, 'Stress', stressLabel(r), stressColor(r), lcL, lcR, yL);
     if (r.cheerDrop > 0) {
-      row('Kids cheered', '-' + Math.round(r.cheerDrop) + ' rage', '#a0d8ff');
+      yL = kvRow(ctx, 'Kids cheered',
+                 '-' + Math.round(r.cheerDrop) + ' rage',
+                 '#a0d8ff', lcL, lcR, yL);
     }
-    y += 2;
-    row('Base pay',  '$' + r.base,  '#fff');
+    yL += 3;
+
+    yL = sectionHeader(ctx, 'EARNINGS', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Base pay', '$' + r.base, '#fff', lcL, lcR, yL);
     if (r.bonusPct > 0) {
-      row('Bonus',   '+' + pct(r.bonusPct), '#9eea9e');
+      yL = kvRow(ctx, 'Bonus', '+' + pct(r.bonusPct), '#9eea9e', lcL, lcR, yL);
     }
     if (r.penaltyPct > 0) {
-      row('Late penalty', '-' + pct(r.penaltyPct), '#ff8060');
+      yL = kvRow(ctx, 'Late penalty', '-' + pct(r.penaltyPct), '#ff8060', lcL, lcR, yL);
     }
-    if (r.preRepair > 0) {
-      row('Repair (last)', '-$' + r.preRepair, '#ff8060');
-    }
-    y += 2;
-    ctx.fillStyle = '#222';
-    ctx.fillRect(lx, y - 2, boxW - 16, 1);
-    row('PAY', '$' + r.pay, r.pay > 0 ? '#9eea9e' : '#888');
-    y += 2;
-    row('Lifetime',   '$' + career.lifetimeEarnings, '#ffe060');
-    if (r.styleShift !== undefined) {
-      row('Style',  RR.Style.formatNum(r.styleShift), '#ffe060');
-    }
-    row('Lifetime Style', RR.Style.formatNum(career.lifetimeStyle || 0), '#ffd040');
+    yL = subtotalDivider(ctx, lcL, lcR, yL);
+    yL = kvRow(ctx, 'Subtotal', '$' + r.grossPay,
+               r.grossPay > 0 ? '#fff' : '#888', lcL, lcR, yL);
+    yL += 3;
 
-    // Promo / demo ribbon.
-    if (r.promoted) {
-      drawRibbon(ctx, '★ PROMOTED ★', r.newLevelTitle + ' — ' + r.newCity, '#ffe060', boxX, boxY + boxH - 36, boxW);
-    } else if (r.demoted) {
-      drawRibbon(ctx, '▼ DEMOTED ▼', r.newLevelTitle + ' — ' + r.newCity, '#ff8060', boxX, boxY + boxH - 36, boxW);
+    yL = sectionHeader(ctx, 'REPAIRS', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Damage',
+               r.damageCost > 0 ? '-$' + r.damageCost : '$0',
+               r.damageCost > 0 ? '#ff8060' : '#888',
+               lcL, lcR, yL);
+    yL = subtotalDivider(ctx, lcL, lcR, yL);
+    yL = kvRow(ctx, 'NET PAY', '$' + r.netPay,
+               r.netPay > 0 ? '#9eea9e' : '#888', lcL, lcR, yL);
+
+    // === RIGHT COLUMN ===
+
+    yR = sectionHeader(ctx, 'STYLE', rcL, rcR, yR);
+    yR = kvRow(ctx, 'This shift',
+               String(r.styleShift !== undefined ? r.styleShift : 0),
+               '#ffe060', rcL, rcR, yR);
+    yR = kvRow(ctx, 'Lifetime',
+               String(career.lifetimeStyle || 0),
+               '#ffd040', rcL, rcR, yR);
+    yR += 3;
+
+    yR = sectionHeader(ctx, 'CAREER', rcL, rcR, yR);
+    yR = kvRow(ctx, 'Total earnings', '$' + career.lifetimeEarnings,
+               '#ffe060', rcL, rcR, yR);
+    yR += 3;
+
+    // Gauges row. Always show all three so the player learns the system.
+    // For the top rung, the Promo gauge is replaced by a Retire bar showing
+    // progress toward the retirement earnings target.
+    const tcfg = RR.Career.trackCfg(career);
+    const atTop = career.levelIdx === tcfg.levels.length - 1;
+    const barW = rcR - rcL - 32;
+    const barH = 5;
+    if (atTop) {
+      const frac = Math.min(1, career.lifetimeEarnings / C.CAREERS.retirementTarget);
+      yR = gaugeRow(ctx, 'Retire', '#ffe060', frac, 0, rcL, rcR, barW, barH, yR);
     } else {
-      drawStreakRow(ctx, career, r, boxX, boxY + boxH - 32, boxW);
+      yR = gaugeRow(ctx, 'Promo', '#9eea9e',
+                    r.displayPromo / r.promoteStreak, r.promoteStreak,
+                    rcL, rcR, barW, barH, yR);
     }
+    yR = gaugeRow(ctx, 'Late', '#ffaa40',
+                  r.displayLate / r.demoteStreak, r.demoteStreak,
+                  rcL, rcR, barW, barH, yR);
+    yR = gaugeRow(ctx, 'Rage', '#ff6060',
+                  r.displayRage / r.demoteStreak, r.demoteStreak,
+                  rcL, rcR, barW, barH, yR);
 
-    // Continue prompt.
+    // ---- Continue prompt ----
     ctx.font = '8px "Courier New", monospace';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#aaa';
@@ -653,65 +733,60 @@ RR.Render = (function () {
     ctx.textBaseline = 'top';
   }
 
-  function drawRibbon(ctx, head, sub, color, x, y, w) {
-    ctx.fillStyle = '#1c2a36';
-    ctx.fillRect(x + 4, y, w - 8, 22);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 4.5, y + 0.5, w - 9, 21);
-    ctx.font = 'bold 9px "Courier New", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = color;
-    ctx.fillText(head, x + w / 2, y + 4);
+  // ---- Shift-end layout helpers ----
+
+  function sectionHeader(ctx, text, lx, rx, y) {
+    ctx.font = 'bold 7px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#7aa9c8';
+    ctx.fillText(text, lx, y);
+    ctx.fillStyle = '#2a3a4a';
+    ctx.fillRect(lx, y + 8, rx - lx, 1);
     ctx.font = '8px "Courier New", monospace';
-    ctx.fillStyle = '#fff';
-    ctx.fillText(sub, x + w / 2, y + 14);
+    return y + 11;
   }
 
-  function drawStreakRow(ctx, career, r, x, y, w) {
-    const tcfg = RR.Career.trackCfg(career);
-    const atTop = career.levelIdx === tcfg.levels.length - 1;
-    ctx.font = '8px "Courier New", monospace';
+  function kvRow(ctx, label, value, color, lx, rx, y) {
+    ctx.fillStyle = '#aaa';
     ctx.textAlign = 'left';
+    ctx.fillText(label, lx, y);
+    ctx.fillStyle = color || '#fff';
+    ctx.textAlign = 'right';
+    ctx.fillText(value, rx, y);
+    return y + 9;
+  }
 
-    if (atTop) {
-      const target = C.CAREERS.retirementTarget;
-      const frac = Math.min(1, career.lifetimeEarnings / target);
-      ctx.fillStyle = '#aaa';
-      ctx.fillText('Retire', x + 8, y);
-      const barX = x + 50, barY = y + 1, barW = 80, barH = 4;
-      ctx.fillStyle = '#222';
-      ctx.fillRect(barX, barY, barW, barH);
-      ctx.fillStyle = '#ffe060';
-      ctx.fillRect(barX, barY, Math.round(barW * frac), barH);
-      ctx.fillStyle = '#ffe060';
-      ctx.fillText('$' + career.lifetimeEarnings + ' / $' + target, barX + barW + 4, y);
+  function subtotalDivider(ctx, lx, rx, y) {
+    ctx.fillStyle = '#444';
+    ctx.fillRect(lx + (rx - lx) / 2, y, (rx - lx) / 2, 1);
+    return y + 3;
+  }
+
+  // One gauge row: "label  [▓▓░]". `frac` in [0,1] for continuous (segments=0),
+  // or maps to whole segments when `segments` > 0.
+  function gaugeRow(ctx, label, color, frac, segments, lx, rx, barW, barH, y) {
+    ctx.fillStyle = '#aaa';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, lx, y);
+    const barX = rx - barW;
+    if (segments > 0) {
+      drawSegmentedBar(ctx, barX, y + 1, barW, barH, Math.round(frac * segments), segments, color);
     } else {
-      ctx.fillStyle = '#aaa';
-      ctx.fillText('Promo', x + 8, y);
-      drawDots(ctx, x + 50, y + 4, career.promoStreak, tcfg.promoteStreak || 3, '#9eea9e');
+      ctx.fillStyle = '#222';
+      ctx.fillRect(barX, y + 1, barW, barH);
+      ctx.fillStyle = color;
+      ctx.fillRect(barX, y + 1, Math.round(barW * Math.max(0, Math.min(1, frac))), barH);
     }
-
-    ctx.fillStyle = '#aaa';
-    ctx.fillText('Late',  x + 8, y + 12);
-    drawDots(ctx, x + 50, y + 16, career.lateStreak, tcfg.demoteStreak || 3, '#ffaa40');
-
-    ctx.fillStyle = '#aaa';
-    ctx.fillText('Rage',  x + w / 2 + 8, y + 12);
-    drawDots(ctx, x + w / 2 + 50, y + 16, career.rageStreak, tcfg.demoteStreak || 3, '#ff6060');
-    ctx.textAlign = 'left';
+    return y + 10;
   }
 
-  function drawDots(ctx, x, y, filled, total, color) {
+  function drawSegmentedBar(ctx, x, y, w, h, filled, total, color) {
+    const gap = 1;
+    const segW = Math.max(1, Math.floor((w - gap * (total - 1)) / total));
     for (let i = 0; i < total; i++) {
-      const cx = x + i * 8;
-      ctx.beginPath();
-      ctx.arc(cx, y, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = i < filled ? color : '#222';
-      ctx.fill();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      const sx = x + i * (segW + gap);
+      ctx.fillStyle = (i < filled) ? color : '#333';
+      ctx.fillRect(sx, y, segW, h);
     }
   }
 

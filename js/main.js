@@ -339,7 +339,9 @@
 
   // ---------- Scene: SHIFT_END ----------
   function tickShiftEnd() {
-    if (RR.Input.consumeEdge('Enter') || RR.Input.consumeEdge('Space')) {
+    // ENTER only — Space is the powerup-activate key during driving, so
+    // a stray press at the moment a shift ends would skip this screen.
+    if (RR.Input.consumeEdge('Enter')) {
       state.scene = 'drive';
       beginShift();
     }
@@ -622,7 +624,6 @@
     RR.Render.drawShortcutFlash(ctx, state.shockTimer);
     RR.Style.drawFloaters(ctx, state.style);
     RR.Render.drawHUD(ctx, state, state.time);
-    RR.Style.drawCounter(ctx, state.style);
     RR.Render.drawBanner(ctx, state.banner);
 
     if (state.scene === 'shift_end') {

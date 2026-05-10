@@ -110,18 +110,15 @@ RR.Career = (function () {
     return (cc.shiftDistance / targetSpeed) * cc.deadlineCushion;
   }
 
-  // Open a fresh shift. Repair cost is debited from lifetime earnings up
-  // front so the shift-end summary can report the next net cleanly.
+  // Open a fresh shift. Damage from prior shifts has already been paid
+  // off in finishShift, so we just open a clean slate here.
   function startShift(s) {
-    const repair = repairCost(s);
-    s.lifetimeEarnings = Math.max(0, s.lifetimeEarnings - repair);
     s.damage = 0;
     s.shift = {
       startedAt: 0,            // absolute time-zero is fine; we tick elapsed
       elapsed: 0,
       distance: 0,
       deadline: shiftDeadline(),
-      preRepair: repair,
       finished: false,
     };
     save(s);
@@ -219,10 +216,16 @@ RR.Career = (function () {
     }
 
     const base = lcfg.basePay;
-    let pay = raging ? 0 : Math.round(base * (1 + bonusPct - penaltyPct));
-    if (pay < 0) pay = 0;
+    let grossPay = raging ? 0 : Math.round(base * (1 + bonusPct - penaltyPct));
+    if (grossPay < 0) grossPay = 0;
 
-    s.lifetimeEarnings += pay;
+    // Damage from this shift is repaired at the end of the shift, deducted
+    // from gross pay. Net pay is what hits the bank (clamped at 0 — the
+    // shop absorbs any shortfall for now; carryover is a Phase 5+ option).
+    const damageCost = repairCost(s);
+    const netPay = Math.max(0, grossPay - damageCost);
+    s.lifetimeEarnings += netPay;
+    s.damage = 0;
 
     // ---- Streaks ----
     let promoted = false, demoted = false, gameOver = false, retired = false;
@@ -233,6 +236,12 @@ RR.Career = (function () {
     if (raging) s.rageStreak++; else s.rageStreak = 0;
     // Promo counter: only on-time AND not raging.
     if (!late && !raging) s.promoStreak++; else s.promoStreak = 0;
+
+    // Capture post-increment streaks for the shift-end UI BEFORE any
+    // promotion/demotion reset wipes them.
+    const displayPromo = s.promoStreak;
+    const displayLate  = s.lateStreak;
+    const displayRage  = s.rageStreak;
 
     if (s.promoStreak >= (tcfg.promoteStreak || 3)) {
       s.promoStreak = 0; s.lateStreak = 0; s.rageStreak = 0;
@@ -269,12 +278,20 @@ RR.Career = (function () {
     s.shiftsWorked++;
 
     const result = {
-      pay, base, bonusPct, penaltyPct,
+      // Money flow for the shift, all inline on the end screen:
+      //   grossPay = base × (1 + bonus - penalty), clamped 0
+      //   damageCost = repair cost for damage taken this shift
+      //   netPay    = max(0, grossPay - damageCost), what hits the bank
+      grossPay, damageCost, netPay,
+      base, bonusPct, penaltyPct,
       tier, raging, late,
       elapsed, deadline,
       arrivalRage, adjustedRage, cheerDrop,
-      preRepair: sh.preRepair,
-      damage: 0,                // damage was zeroed at startShift; live count is on s.damage
+      // Streaks captured BEFORE any promo/demo reset wiped them, so the
+      // screen can show 3/3 with a PROMOTED banner instead of 0/3.
+      displayPromo, displayLate, displayRage,
+      promoteStreak: tcfg.promoteStreak || 3,
+      demoteStreak:  tcfg.demoteStreak  || 3,
       promoted, demoted, gameOver, retired,
       newLevelTitle: tcfg.levels[s.levelIdx].title,
       newCity: s.city,
