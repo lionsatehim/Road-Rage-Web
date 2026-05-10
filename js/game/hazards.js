@@ -73,10 +73,16 @@ RR.Hazards = (function () {
       x,
       y: C.HAZARDS.spawnAheadY,
     };
-    // Pick a sprite once at spawn so the car keeps a consistent look.
-    if (type === 'stoppedCar' && RR.Sprites && RR.Sprites.NPC_VARIANTS) {
-      const variants = RR.Sprites.NPC_VARIANTS;
-      item.sprite = variants[Math.floor(Math.random() * variants.length)];
+    // Pick a vehicle look once at spawn so the car keeps a consistent
+    // appearance. Uses the same sheet/tint pipeline as traffic NPCs so
+    // file-overridden sprites show here too. Always renders the wrecked
+    // frame — it's broken down by definition.
+    if (type === 'stoppedCar') {
+      item.vehicleClass = 'sedan';
+      const tintCount = RR.Sprites.vehicleSheetExists('sedan')
+        ? RR.Sprites.vehicleTintCount('sedan')
+        : RR.Sprites.proceduralTintCount('sedan');
+      item.tintIdx = Math.floor(Math.random() * Math.max(1, tintCount));
     }
     h.hazards.push(item);
   }
@@ -196,10 +202,12 @@ RR.Hazards = (function () {
   }
 
   function drawStoppedCar(ctx, it) {
-    if (!it.sprite) return;
+    const frame = RR.Sprites.wreckedFrame(it.vehicleClass || 'sedan');
+    const sprite = RR.Sprites.getNpcSprite(it.vehicleClass || 'sedan', it.tintIdx || 0, frame);
+    if (!sprite) return;
     const x = Math.round(it.x - C.CAR.width / 2);
     const y = Math.round(it.y - C.CAR.height / 2);
-    ctx.drawImage(it.sprite, x, y);
+    ctx.drawImage(sprite, x, y);
     // Hazard flashers on the rear bumper — both tail lights blink in sync
     // at ~1.4 Hz. Reads as "broken-down, do not approach".
     const blinkOn = (Math.floor(performance.now() / 350) % 2) === 0;
