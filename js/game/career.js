@@ -28,6 +28,18 @@ RR.Career = (function () {
       lifetimeStyle: 0,
       damage: 0,
       shiftsWorked: 0,
+      // ---- Lifetime stats (for the retirement screen) ----
+      // Cumulative across every shift since the career started. Hooks in
+      // main.js increment these at the moment of each event.
+      lifetimeDamage: 0,           // total damage units taken
+      lifetimeRepairCost: 0,       // total $ spent on repairs
+      crashCount: 0,               // hard crashes (full stuns)
+      tapCount: 0,                 // glancing scrapes
+      ramCount: 0,                 // Road Rage rams
+      powerupsUsed: {              // count of each powerup activated
+        coffee: 0, jump: 0, shortcut: 0, lofi: 0, wrench: 0,
+      },
+      bestShiftTime: null,         // seconds — fastest single shift completion
       // The most recent end-of-shift result (for the summary screen).
       lastResult: null,
       // Soft state for the running shift.
@@ -60,6 +72,13 @@ RR.Career = (function () {
         lifetimeStyle: s.lifetimeStyle || 0,
         damage: s.damage,
         shiftsWorked: s.shiftsWorked,
+        lifetimeDamage: s.lifetimeDamage || 0,
+        lifetimeRepairCost: s.lifetimeRepairCost || 0,
+        crashCount: s.crashCount || 0,
+        tapCount: s.tapCount || 0,
+        ramCount: s.ramCount || 0,
+        powerupsUsed: s.powerupsUsed || { coffee: 0, jump: 0, shortcut: 0, lofi: 0, wrench: 0 },
+        bestShiftTime: s.bestShiftTime,
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(persisted));
     } catch (e) { /* localStorage unavailable — silent */ }
@@ -98,6 +117,13 @@ RR.Career = (function () {
     s.lifetimeStyle = 0;
     s.damage = 0;
     s.shiftsWorked = 0;
+    s.lifetimeDamage = 0;
+    s.lifetimeRepairCost = 0;
+    s.crashCount = 0;
+    s.tapCount = 0;
+    s.ramCount = 0;
+    s.powerupsUsed = { coffee: 0, jump: 0, shortcut: 0, lofi: 0, wrench: 0 };
+    s.bestShiftTime = null;
     assignCity(s);
     save(s);
   }
@@ -134,18 +160,33 @@ RR.Career = (function () {
   }
 
   // Damage from collisions. Called by main on hit detection.
+  // Also drives the lifetime counters used on the retirement stats screen.
   function addDamage(s, kind, mult) {
     const cc = C.CAREERS;
     const m = (mult === undefined) ? 1 : mult;
-    if (kind === 'crash') s.damage += cc.damagePerCrash * m;
-    else if (kind === 'tap') s.damage += cc.damagePerTap * m;
-    else if (kind === 'ram') s.damage += cc.damagePerRam * m;
+    let added = 0;
+    if (kind === 'crash') { added = cc.damagePerCrash * m; s.crashCount++; }
+    else if (kind === 'tap') { added = cc.damagePerTap * m; s.tapCount++; }
+    else if (kind === 'ram') { added = cc.damagePerRam * m; s.ramCount++; }
+    s.damage += added;
+    s.lifetimeDamage = (s.lifetimeDamage || 0) + added;
   }
 
   // Direct damage (for hazards which carry their own damage values).
   function addDamageAmount(s, amount, mult) {
     const m = (mult === undefined) ? 1 : mult;
-    if (amount > 0) s.damage += amount * m;
+    if (amount > 0) {
+      const added = amount * m;
+      s.damage += added;
+      s.lifetimeDamage = (s.lifetimeDamage || 0) + added;
+    }
+  }
+
+  // Record a powerup use for the lifetime stats. main.js calls this on
+  // every justActivated dispatch.
+  function recordPowerupUse(s, type) {
+    if (!s.powerupsUsed) s.powerupsUsed = { coffee: 0, jump: 0, shortcut: 0, lofi: 0, wrench: 0 };
+    if (s.powerupsUsed[type] !== undefined) s.powerupsUsed[type]++;
   }
 
   function repairCost(s) {
@@ -225,7 +266,14 @@ RR.Career = (function () {
     const damageCost = repairCost(s);
     const netPay = Math.max(0, grossPay - damageCost);
     s.lifetimeEarnings += netPay;
+    s.lifetimeRepairCost = (s.lifetimeRepairCost || 0) + damageCost;
     s.damage = 0;
+
+    // Best single-shift completion time — only counts on-time shifts so a
+    // late timeout doesn't accidentally set a "record".
+    if (!late && (s.bestShiftTime == null || elapsed < s.bestShiftTime)) {
+      s.bestShiftTime = elapsed;
+    }
 
     // ---- Streaks ----
     let promoted = false, demoted = false, gameOver = false, retired = false;
@@ -322,7 +370,7 @@ RR.Career = (function () {
     load, save, clearSave, emptyState,
     pickTrack, assignCity,
     startShift, tickShift, finishShift,
-    addDamage, addDamageAmount, repairCost,
+    addDamage, addDamageAmount, repairCost, recordPowerupUse,
     trackCfg, levelCfg, currentMapType,
     stressTier, promoProgress,
     shiftDeadline,

@@ -5,6 +5,10 @@ RR.Config = {
   INTERNAL_WIDTH: 256,
   INTERNAL_HEIGHT: 240,
 
+  // Retirement credits scroll speed (px/sec). Slower = more dramatic;
+  // ~14 px/sec means a 480-px credits roll takes ~35 seconds.
+  CREDITS_SCROLL_SPEED: 14,
+
   ROAD: {
     x: 86,           // (INTERNAL_WIDTH - width) / 2 to keep road centered
     width: 84,       // 3 lanes ~28px each — car (16) + half a car (8) clear

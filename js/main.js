@@ -34,6 +34,7 @@
     rage: RR.Rage.create(),
     powerups: RR.Powerups.create(),
     style: RR.Style.create(career.lifetimeStyle || 0),
+    creditsScroll: 0,
     career,
     time: 0,
     shockTimer: 0,
@@ -73,14 +74,23 @@
 
   function tick(dt) {
     if (RR.Input.consumeEdge('KeyM')) RR.Audio.toggleMuted();
+    // Debug shortcut: hold 8+9+0 together to jump straight to the
+    // retirement stats screen with mocked career data so the win flow is
+    // testable without grinding through a full career. Wired global so
+    // it works from any scene (title, drive, shift_end, etc).
+    if (RR.Input.consumeChord(['Digit8', 'Digit9', 'Digit0'])) {
+      debugJumpToRetired();
+      return;
+    }
     state.time += dt;
 
     switch (state.scene) {
-      case 'select':    tickSelect();          break;
-      case 'drive':     tickDrive(dt);         break;
-      case 'shift_end': tickShiftEnd();        break;
-      case 'game_over':
-      case 'retired':   tickEndState();        break;
+      case 'select':            tickSelect();              break;
+      case 'drive':             tickDrive(dt);             break;
+      case 'shift_end':         tickShiftEnd();            break;
+      case 'game_over':         tickEndState();            break;
+      case 'retired_stats':     tickRetiredStats();        break;
+      case 'retired_credits':   tickRetiredCredits(dt);    break;
     }
   }
 
@@ -230,6 +240,12 @@
     tickStyleDetections(dt, input);
     RR.Style.update(state.style, dt);
 
+    // Lifetime stat: every powerup activation is counted toward the
+    // retirement-screen tally.
+    if (state.powerups.justActivated) {
+      RR.Career.recordPowerupUse(state.career, state.powerups.justActivated);
+    }
+
     // Power-up rage effects.
     if (state.powerups.justActivated === 'coffee') {
       RR.Rage.reduceFlat(state.rage, RR.Config.RAGE.coffeeImmediateDrop);
@@ -329,9 +345,10 @@
       // Re-save so the new lifetimeStyle persists. Skip if the career was
       // just wiped (game over / retire), so we don't resurrect the save.
       if (!result.gameOver && !result.retired) RR.Career.save(state.career);
-      if (result.retired)        state.scene = 'retired';
+      if (result.retired)        state.scene = 'retired_stats';
       else if (result.gameOver)  state.scene = 'game_over';
       else                       state.scene = 'shift_end';
+      if (result.retired) state.creditsScroll = 0;
       RR.Audio.setEngine(0, false);
       RR.Audio.stopLofi();
     }
@@ -347,9 +364,66 @@
     }
   }
 
-  // ---------- Scene: GAME_OVER / RETIRED ----------
+  // ---------- Scene: GAME_OVER ----------
   function tickEndState() {
     if (RR.Input.consumeEdge('KeyR') || RR.Input.consumeEdge('Enter')) {
+      RR.Career.clearSave();
+      state.career = RR.Career.load();
+      state.scene = 'select';
+    }
+  }
+
+  // Mock-fills the career with randomized end-of-game stats and jumps to
+  // the retirement stats screen. Used by the 8+9+0 debug chord so every
+  // re-trigger surfaces a different "favorite" tagline + stat spread.
+  function debugJumpToRetired() {
+    const rand = (lo, hi) => Math.floor(lo + Math.random() * (hi - lo + 1));
+    const tracks = ['trades', 'finance', 'teacher'];
+    const trackKey = tracks[rand(0, tracks.length - 1)];
+    RR.Career.pickTrack(state.career, trackKey);
+    const tcfg = RR.Career.trackCfg(state.career);
+    state.career.levelIdx = tcfg.levels.length - 1;
+    RR.Career.assignCity(state.career);
+    state.career.lifetimeEarnings = RR.Config.CAREERS.retirementTarget + rand(0, 2400);
+    state.career.lifetimeStyle = rand(2000, 40000);
+    state.career.shiftsWorked = rand(8, 30);
+    state.career.lifetimeDamage = rand(30, 500);
+    state.career.lifetimeRepairCost = rand(100, 1500);
+    state.career.crashCount = rand(0, 12);
+    state.career.tapCount = rand(0, 25);
+    state.career.ramCount = rand(0, 15);
+    // ~10% chance of "PRISTINE DRIVER" (no powerups used). Otherwise spin
+    // each powerup independently so a different favorite wins each press.
+    const pristine = Math.random() < 0.1;
+    state.career.powerupsUsed = pristine
+      ? { coffee: 0, jump: 0, shortcut: 0, lofi: 0, wrench: 0 }
+      : {
+          coffee:   rand(0, 18),
+          jump:     rand(0, 15),
+          shortcut: rand(0, 10),
+          lofi:     rand(0, 12),
+          wrench:   rand(0, 8),
+        };
+    state.career.bestShiftTime = rand(75, 240);
+    state.creditsScroll = 0;
+    state.scene = 'retired_stats';
+    RR.Audio.setEngine(0, false);
+    RR.Audio.stopLofi();
+  }
+
+  // ---------- Scene: RETIRED — STATS (page 1 of the retirement screen) ----------
+  function tickRetiredStats() {
+    if (RR.Input.consumeEdge('Enter')) {
+      state.creditsScroll = 0;
+      state.scene = 'retired_credits';
+    }
+  }
+
+  // ---------- Scene: RETIRED — CREDITS (page 2, scrolling) ----------
+  function tickRetiredCredits(dt) {
+    // Slow scroll upward. ENTER skips back to the title screen at any time.
+    state.creditsScroll += RR.Config.CREDITS_SCROLL_SPEED * dt;
+    if (RR.Input.consumeEdge('Enter')) {
       RR.Career.clearSave();
       state.career = RR.Career.load();
       state.scene = 'select';
@@ -630,8 +704,10 @@
       RR.Render.drawShiftEnd(ctx, state.career);
     } else if (state.scene === 'game_over') {
       RR.Render.drawGameOver(ctx, state.career);
-    } else if (state.scene === 'retired') {
-      RR.Render.drawRetired(ctx, state.career);
+    } else if (state.scene === 'retired_stats') {
+      RR.Render.drawRetiredStats(ctx, state.career);
+    } else if (state.scene === 'retired_credits') {
+      RR.Render.drawRetiredCredits(ctx, state.creditsScroll || 0);
     } else if (state.paused) {
       RR.Render.drawPause(ctx);
     }

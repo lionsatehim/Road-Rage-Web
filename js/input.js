@@ -47,5 +47,20 @@ RR.Input = (function () {
     return consumeEdge('Escape') || consumeEdge('KeyP');
   }
 
-  return { read, consumeEdge, consumePause };
+  // Multi-key chord: fires once when ALL listed keys are simultaneously
+  // held. Re-arms only after at least one is released, so holding the
+  // chord doesn't fire every frame. Used for hidden debug shortcuts.
+  const chordsArmed = {};
+  function consumeChord(codes) {
+    const allDown = codes.every(c => keys[c]);
+    const id = codes.join('+');
+    if (allDown) {
+      if (!chordsArmed[id]) { chordsArmed[id] = true; return true; }
+      return false;
+    }
+    chordsArmed[id] = false;
+    return false;
+  }
+
+  return { read, consumeEdge, consumePause, consumeChord };
 })();

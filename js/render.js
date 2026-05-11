@@ -813,27 +813,257 @@ RR.Render = (function () {
     ctx.textBaseline = 'top';
   }
 
-  function drawRetired(ctx, career) {
+  // ---- Retirement: page 1 (career stats) ----
+  function drawRetiredStats(ctx, career) {
     const W = C.INTERNAL_WIDTH, H = C.INTERNAL_HEIGHT;
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillStyle = 'rgba(0,0,0,0.92)';
     ctx.fillRect(0, 0, W, H);
-    ctx.font = 'bold 16px "Courier New", monospace';
+
+    ctx.textBaseline = 'top';
+
+    // Headline
+    ctx.font = 'bold 14px "Courier New", monospace';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffe060';
-    ctx.fillText('RETIRED', W / 2, H / 2 - 36);
+    ctx.fillText('YOU RETIRED!', W / 2, 12);
+
+    // Career flavor line — which path and the final job title.
+    const tcfg = career.track ? RR.Career.trackCfg(career) : null;
+    const lcfg = career.track ? RR.Career.levelCfg(career) : null;
     ctx.font = '8px "Courier New", monospace';
-    ctx.fillStyle = '#fff';
-    ctx.fillText('Congratulations.', W / 2, H / 2 - 14);
-    ctx.fillText('You hit the magic number.', W / 2, H / 2 - 4);
     ctx.fillStyle = '#9eea9e';
-    ctx.fillText('Lifetime earnings: $' + career.lifetimeEarnings, W / 2, H / 2 + 14);
-    ctx.fillStyle = '#ffd040';
-    ctx.fillText('Lifetime style: ' + RR.Style.formatNum(career.lifetimeStyle || 0),
-                 W / 2, H / 2 + 24);
+    if (tcfg && lcfg) {
+      ctx.fillText(tcfg.name.toUpperCase() + ' — Final title: ' + lcfg.title.toUpperCase(),
+                   W / 2, 30);
+    }
+
+    // Two columns of stats inside a faint card.
+    const boxX = 16, boxW = W - 32;
+    const boxY = 46, boxH = H - 76;
+    ctx.fillStyle = '#0e1620';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
+
+    const lcL = boxX + 6;
+    const lcR = boxX + boxW / 2 - 4;
+    const rcL = boxX + boxW / 2 + 4;
+    const rcR = boxX + boxW - 6;
+
+    let yL = boxY + 6;
+    let yR = boxY + 6;
+
+    // --- Left column: financial + work record ---
+    yL = sectionHeader(ctx, 'CAREER', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Total earnings', '$' + (career.lifetimeEarnings || 0),
+               '#ffe060', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Shifts worked', String(career.shiftsWorked || 0),
+               '#fff', lcL, lcR, yL);
+    const bst = career.bestShiftTime;
+    yL = kvRow(ctx, 'Best shift',
+               bst != null ? formatTime(bst) : '--',
+               '#9eea9e', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Style points', String(career.lifetimeStyle || 0),
+               '#ffd040', lcL, lcR, yL);
+    yL += 4;
+
+    yL = sectionHeader(ctx, 'CRASHES', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Hard crashes', String(career.crashCount || 0),
+               (career.crashCount || 0) > 0 ? '#ff6060' : '#888', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Taps', String(career.tapCount || 0),
+               (career.tapCount || 0) > 0 ? '#ffaa40' : '#888', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Rams (RR)', String(career.ramCount || 0),
+               (career.ramCount || 0) > 0 ? '#ff8060' : '#888', lcL, lcR, yL);
+    yL = kvRow(ctx, 'Repair $', '$' + (career.lifetimeRepairCost || 0),
+               '#ff8060', lcL, lcR, yL);
+
+    // --- Right column: powerup usage ---
+    yR = sectionHeader(ctx, 'POWERUPS USED', rcL, rcR, yR);
+    const pu = career.powerupsUsed || {};
+    const order = ['coffee', 'jump', 'shortcut', 'lofi', 'wrench'];
+    const labels = {
+      coffee:   'Coffees',
+      jump:     'Jumps',
+      shortcut: 'Lightning',
+      lofi:     'Lo-fi loops',
+      wrench:   'Wrenches',
+    };
+    const colors = {
+      coffee:   '#c4956a',
+      jump:     '#7adfff',
+      shortcut: '#ffe060',
+      lofi:     '#c890ff',
+      wrench:   '#ffa860',
+    };
+    for (const k of order) {
+      yR = kvRow(ctx, labels[k], String(pu[k] || 0),
+                 (pu[k] || 0) > 0 ? colors[k] : '#888',
+                 rcL, rcR, yR);
+    }
+
+    // --- Full-width FAVORITE headliner at the bottom of the card ---
+    // Find the most-used powerup; ties go to whichever appears first in
+    // `order`. Render it across the full box width so the tagline + sub
+    // have room to breathe without clipping the right column.
+    let favKey = null, favN = 0;
+    for (const k of order) if ((pu[k] || 0) > favN) { favN = pu[k]; favKey = k; }
+    const favCx = boxX + boxW / 2;
+    const favY  = boxY + boxH - 38;
+    // Divider line + centered label
+    ctx.fillStyle = '#2a3a4a';
+    ctx.fillRect(boxX + 8, favY, boxW - 16, 1);
+    ctx.font = 'bold 7px "Courier New", monospace';
+    ctx.fillStyle = '#0e1620';
+    ctx.fillRect(favCx - 26, favY - 4, 52, 8);
+    ctx.fillStyle = '#7aa9c8';
+    ctx.textAlign = 'center';
+    ctx.fillText('FAVORITE', favCx, favY - 3);
+    // Tagline + sub
+    if (favKey) {
+      const flavor = FAVORITE_FLAVOR[favKey];
+      ctx.font = 'bold 10px "Courier New", monospace';
+      ctx.fillStyle = colors[favKey];
+      ctx.fillText(flavor.tag, favCx, favY + 6);
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = '#bbb';
+      ctx.fillText(flavor.sub, favCx, favY + 19);
+      ctx.font = '7px "Courier New", monospace';
+      ctx.fillStyle = '#888';
+      ctx.fillText(labels[favKey] + ' x' + favN, favCx, favY + 29);
+    } else {
+      ctx.font = 'bold 10px "Courier New", monospace';
+      ctx.fillStyle = '#9eea9e';
+      ctx.fillText('PRISTINE DRIVER', favCx, favY + 6);
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = '#bbb';
+      ctx.fillText('Didn\'t need a single boost.', favCx, favY + 19);
+    }
+
+    // Prompt
+    ctx.font = '8px "Courier New", monospace';
+    ctx.textAlign = 'center';
     ctx.fillStyle = '#aaa';
-    ctx.fillText('Shifts worked: ' + career.shiftsWorked, W / 2, H / 2 + 34);
-    ctx.fillText('Press R or Enter for a new life', W / 2, H / 2 + 48);
+    ctx.fillText('PRESS ENTER FOR CREDITS', W / 2, H - 14);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+  }
+
+  // ---- Retirement page 1: FAVORITE blurbs ----
+  // One tag-line per most-used powerup so the screen feels like it knows
+  // how you played. Kept light — a friendly roast, not a callout.
+  const FAVORITE_FLAVOR = {
+    coffee: {
+      tag: 'CAFFEINATED COMMUTER',
+      sub: 'Sleep is for retirees. Oh wait...',
+    },
+    jump: {
+      tag: 'ROAD ACROBAT',
+      sub: 'When in doubt, hop it out.',
+    },
+    shortcut: {
+      tag: 'LIGHTNING LEGEND',
+      sub: 'Traffic laws are a suggestion.',
+    },
+    lofi: {
+      tag: 'ZEN MASTER',
+      sub: 'Rush hour? More like hush hour.',
+    },
+    wrench: {
+      tag: 'BODY SHOP REGULAR',
+      sub: 'Your mechanic sends Christmas cards.',
+    },
+  };
+
+  // ---- Retirement: page 2 (scrolling credits) ----
+  // Credit lines drift up from below the screen. ENTER returns to title.
+  const CREDIT_LINES = [
+    { text: 'RUSH HOUR RAGE',          style: 'title' },
+    { text: '',                          style: 'gap' },
+    { text: 'GAME DESIGN & DIRECTION',  style: 'role' },
+    { text: 'Matthew Hessing',          style: 'name' },
+    { text: '',                          style: 'gap' },
+    { text: 'PROGRAMMING',              style: 'role' },
+    { text: 'Claude (Sonnet, Opus)',    style: 'name' },
+    { text: 'Matthew Hessing',          style: 'name' },
+    { text: '',                          style: 'gap' },
+    { text: 'PIXEL ART',                style: 'role' },
+    { text: 'Matthew Hessing',          style: 'name' },
+    { text: 'ChatGPT',                  style: 'name' },
+    { text: '',                          style: 'gap' },
+    { text: 'AUDIO DESIGN',             style: 'role' },
+    { text: 'Claude',                   style: 'name' },
+    { text: '(procedural Web Audio)',   style: 'sub'  },
+    { text: '',                          style: 'gap' },
+    { text: 'CONCEPT',                  style: 'role' },
+    { text: 'Matthew Hessing',          style: 'name' },
+    { text: '',                          style: 'gap' },
+    { text: '',                          style: 'gap' },
+    { text: 'SPECIAL THANKS',           style: 'role' },
+    { text: 'You, the player.',         style: 'name' },
+    { text: '',                          style: 'gap' },
+    { text: 'Thanks for playing!',      style: 'farewell' },
+    { text: '',                          style: 'gap' },
+    { text: '',                          style: 'gap' },
+    { text: 'PRESS ENTER TO RETURN',    style: 'prompt' },
+  ];
+
+  function drawRetiredCredits(ctx, scrollY) {
+    const W = C.INTERNAL_WIDTH, H = C.INTERNAL_HEIGHT;
+    ctx.fillStyle = '#080c14';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'center';
+
+    // Credits start fully below the visible area and scroll upward as
+    // scrollY accumulates. baseY is where the FIRST line currently sits.
+    const baseY = H - scrollY;
+
+    let y = baseY;
+    for (const line of CREDIT_LINES) {
+      let lineH = 10;
+      if (line.style === 'title') {
+        ctx.font = 'bold 14px "Courier New", monospace';
+        ctx.fillStyle = '#ffe060';
+        lineH = 18;
+      } else if (line.style === 'role') {
+        ctx.font = 'bold 8px "Courier New", monospace';
+        ctx.fillStyle = '#7aa9c8';
+        lineH = 11;
+      } else if (line.style === 'name') {
+        ctx.font = '8px "Courier New", monospace';
+        ctx.fillStyle = '#fff';
+        lineH = 10;
+      } else if (line.style === 'sub') {
+        ctx.font = '7px "Courier New", monospace';
+        ctx.fillStyle = '#aaa';
+        lineH = 9;
+      } else if (line.style === 'farewell') {
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.fillStyle = '#9eea9e';
+        lineH = 14;
+      } else if (line.style === 'prompt') {
+        ctx.font = '8px "Courier New", monospace';
+        ctx.fillStyle = '#888';
+        lineH = 10;
+      } else {
+        lineH = 6;
+      }
+      // Cull lines that are well off-screen for very long rolls; render
+      // only those that could intersect the canvas.
+      if (y > -lineH && y < H && line.text) {
+        ctx.fillText(line.text, W / 2, Math.round(y));
+      }
+      y += lineH;
+    }
+
+    // Always-visible skip prompt at the very bottom edge so the player
+    // doesn't feel trapped if they want out before the scroll completes.
+    ctx.font = '7px "Courier New", monospace';
+    ctx.fillStyle = '#555';
+    ctx.fillText('ENTER to return', W / 2, H - 9);
+
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
   }
@@ -875,6 +1105,7 @@ RR.Render = (function () {
     clear, drawRoad, drawCar, drawBrakeLights, drawBlinker, drawHUD, drawPause, drawBanner,
     drawRoadRageVignette, drawShortcutFlash, drawCoffeeVignette,
     drawShoulderStrips, drawTireMarks,
-    drawCareerSelect, drawShiftEnd, drawGameOver, drawRetired,
+    drawCareerSelect, drawShiftEnd, drawGameOver,
+    drawRetiredStats, drawRetiredCredits,
   };
 })();
