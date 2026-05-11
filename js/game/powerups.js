@@ -1,24 +1,45 @@
-// Power-ups: roadside pickups, single-slot inventory, timed effects.
+// Power-ups: roadside pickups, single-slot inventory, layered timed effects.
 //
 // State shape:
 //   pickups[]:    { type, x, y }                — items on the road
 //   inventory:    string | null                  — held type (one slot)
-//   active:       { type, timer, cfg } | null    — currently running effect
+//   active:       { type, timer, cfg } | null    — current EXCLUSIVE effect
+//   jumpTimer/jumpCfg:                            — concurrent jump (stacks)
 //
-// Stacking rule: at most one held in inventory at any time. Picking up a new
-// item replaces whatever was queued (the old one is discarded). An active
-// effect runs independently — collecting while an effect is running queues
-// the new item, and Space activates it once the current effect expires.
+// Activation categories:
+//   instant   (shortcut, wrench) — fire-and-complete, always allowed
+//   concurrent (jump)            — stacks on top of any exclusive effect,
+//                                  but only one jump in flight at a time
+//   exclusive (coffee, lofi)     — owns the `active` slot; activating a
+//                                  second exclusive REPLACES the running one
+//                                  (the previous effect ends immediately)
+//
+// Inventory is still single-slot: picking up a second pickup discards the
+// old one. Pressing Space activates whatever's in inventory according to
+// the rule for its category.
 window.RR = window.RR || {};
 
 RR.Powerups = (function () {
   const C = RR.Config;
+
+  // Powerup type → activation category. Drives the stacking rules in update().
+  const CATEGORY = {
+    shortcut: 'instant',
+    wrench:   'instant',
+    jump:     'concurrent',
+    coffee:   'exclusive',
+    lofi:     'exclusive',
+  };
 
   function create() {
     return {
       pickups: [],
       inventory: null,
       active: null,
+      // Concurrent jump runs alongside `active` so coffee+jump etc. stacks.
+      jumpTimer: 0,
+      jumpDuration: 0,
+      jumpCfg: null,
       spawnCooldown: 2.0,
       // Brief post-jump grace window — collisions ignored, car is set down on
       // top of any car it landed on instead of crashing.
@@ -85,16 +106,22 @@ RR.Powerups = (function () {
       p.active.timer -= dt;
       p.active.elapsed += dt;
       if (p.active.timer <= 0) {
-        p.justExpired = p.active.type;
-        // exitGrace: short invincibility window after expiry. Used by jump
-        // (slide off a car you land on) and coffee (don't punish the player
-        // while the shoulder slack eases back to zero).
-        if (p.active.cfg.exitGrace) {
-          p.invincibleTimer = Math.max(p.invincibleTimer, p.active.cfg.exitGrace);
-        }
-        p.active = null;
+        expireActive(p);
       } else if (p.active.type === 'lofi' && rage) {
         rage.level = Math.max(0, rage.level - p.active.cfg.drainRate * dt);
+      }
+    }
+    // Concurrent jump ticks independently of `active` so it stacks freely
+    // with coffee / lofi without claiming the exclusive slot.
+    if (p.jumpTimer > 0) {
+      p.jumpTimer -= dt;
+      if (p.jumpTimer <= 0) {
+        p.justExpired = 'jump';
+        if (p.jumpCfg && p.jumpCfg.exitGrace) {
+          p.invincibleTimer = Math.max(p.invincibleTimer, p.jumpCfg.exitGrace);
+        }
+        p.jumpCfg = null;
+        p.jumpDuration = 0;
       }
     }
     if (p.invincibleTimer > 0) {
@@ -113,10 +140,28 @@ RR.Powerups = (function () {
     p.shoulderSlack += (slackTarget - p.shoulderSlack) * ks;
     if (p.shoulderSlack < 0.1 && slackTarget === 0) p.shoulderSlack = 0;
 
-    // Activation: Space consumes inventory.
-    if (RR.Input.consumeEdge('Space') && p.inventory && !p.active) {
-      activate(p, p.inventory, car);
-      p.inventory = null;
+    // Activation: Space consumes inventory according to the category rules.
+    //   instant     — always fires
+    //   concurrent  — fires unless a jump is already in flight
+    //   exclusive   — fires; replaces (negates) any current exclusive effect
+    if (RR.Input.consumeEdge('Space') && p.inventory) {
+      const type = p.inventory;
+      const cat = CATEGORY[type] || 'exclusive';
+      let fired = false;
+      if (cat === 'instant') {
+        activate(p, type, car);
+        fired = true;
+      } else if (cat === 'concurrent') {
+        if (p.jumpTimer <= 0) {
+          activate(p, type, car);
+          fired = true;
+        }
+      } else {  // exclusive
+        if (p.active) expireActive(p);     // negate prior exclusive
+        activate(p, type, car);
+        fired = true;
+      }
+      if (fired) p.inventory = null;
     }
 
     // Pickups drift with the player's real speed — coffee no longer slows
@@ -168,12 +213,27 @@ RR.Powerups = (function () {
       p.justRepaired = { fraction: chosen.fraction, label: chosen.label };
       return;
     }
-    p.active = { type, timer: cfg.duration, elapsed: 0, cfg };
-
     if (type === 'jump') {
-      // Visual hop: drawn by render via active.timer.
-      // Pass-through is implemented in traffic collision check via mods.
+      // Concurrent slot — runs alongside any exclusive (coffee/lofi) effect.
+      p.jumpTimer = cfg.duration;
+      p.jumpDuration = cfg.duration;
+      p.jumpCfg = cfg;
+      return;
     }
+    // Exclusive timed (coffee, lofi).
+    p.active = { type, timer: cfg.duration, elapsed: 0, cfg };
+  }
+
+  // End the currently-running exclusive effect early. Sets justExpired so
+  // consumers can react (e.g. lofi audio shutdown), applies exitGrace if
+  // configured, and clears the slot.
+  function expireActive(p) {
+    if (!p.active) return;
+    p.justExpired = p.active.type;
+    if (p.active.cfg.exitGrace) {
+      p.invincibleTimer = Math.max(p.invincibleTimer, p.active.cfg.exitGrace);
+    }
+    p.active = null;
   }
 
   // Mods exposed to Car. Coffee sharpens accel + steering while active; the
@@ -220,7 +280,17 @@ RR.Powerups = (function () {
   }
 
   function isJumping(p) {
-    return p.active && p.active.type === 'jump';
+    return p.jumpTimer > 0;
+  }
+
+  // Whether the player can fire what's currently in inventory. Instants
+  // and exclusives are always usable (exclusive will replace any running
+  // exclusive). Concurrent (jump) is blocked while another jump is mid-air.
+  function canActivate(p) {
+    if (!p.inventory) return false;
+    const cat = CATEGORY[p.inventory] || 'exclusive';
+    if (cat === 'concurrent') return p.jumpTimer <= 0;
+    return true;
   }
 
   function isInvincible(p) {
@@ -242,9 +312,8 @@ RR.Powerups = (function () {
 
   function jumpHeight(p) {
     if (!isJumping(p)) return 0;
-    const a = p.active;
-    const t = 1 - (a.timer / a.cfg.duration);     // 0..1
-    return Math.sin(t * Math.PI) * a.cfg.hopHeight;
+    const t = 1 - (p.jumpTimer / p.jumpDuration);   // 0..1
+    return Math.sin(t * Math.PI) * p.jumpCfg.hopHeight;
   }
 
   function draw(ctx, p) {
@@ -265,5 +334,6 @@ RR.Powerups = (function () {
     isJumping, jumpHeight, isCoffee, activeRemaining,
     isInvincible, invincibleRemaining,
     coffeeEnvelope, coffeePunch, shoulderSlack,
+    canActivate,
   };
 })();

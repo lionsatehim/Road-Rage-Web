@@ -446,7 +446,7 @@ RR.Render = (function () {
     ctx.fillStyle = '#0a0a0a';
     ctx.fillRect(queuedX, y, w, h);
     // Border: bright when usable now (no active running), dim while waiting.
-    const usable = p.inventory && !p.active;
+    const usable = RR.Powerups.canActivate(p);
     ctx.strokeStyle = usable ? '#ffe060' : '#333';
     ctx.strokeRect(queuedX + 0.5, y + 0.5, w - 1, h - 1);
     if (p.inventory) {
