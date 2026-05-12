@@ -962,8 +962,8 @@ RR.Render = (function () {
       sub: 'When in doubt, hop it out.',
     },
     shortcut: {
-      tag: 'LIGHTNING LEGEND',
-      sub: 'Traffic laws are a suggestion.',
+      tag: 'GOD OF THUNDER',
+      sub: 'Mortal speed limits don\'t apply.',
     },
     lofi: {
       tag: 'ZEN MASTER',
